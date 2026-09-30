@@ -1,0 +1,10 @@
+{
+  "appId": "com.raahnagar.ai",
+  "appName": "RAAH NAGAR AI",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

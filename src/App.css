@@ -1,0 +1,46 @@
+/* RAAH NAGAR AI Application Styles */
+
+/* Ensure buttons and links flex layout keeps icons aligned without text overlap */
+button svg,
+a svg,
+.btn-icon svg {
+  flex-shrink: 0 !important;
+  display: inline-block;
+}
+
+/* Prevent text wrapping and collision inside interactive badge pills */
+.badge-pill {
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* Scrollbar hiding helper */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Smooth glass transition effects */
+.glass-card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.glass-card-hover:hover {
+  transform: translateY(-2px);
+}
+
+/* Z-Index Hierarchy Safeguards */
+header {
+  z-index: 40;
+}
+.sticky-nav {
+  z-index: 30;
+}
+.modal-overlay {
+  z-index: 50;
+}

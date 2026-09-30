@@ -1,0 +1,24 @@
+{
+  "short_name": "RAAH NAGAR AI",
+  "name": "RAAH NAGAR AI - Smart Community Operating System",
+  "description": "Intelligently Managed Residential Society OS with 18 AI Features",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "display": "standalone",
+  "orientation": "portrait"
+}
