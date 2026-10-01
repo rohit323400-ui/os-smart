@@ -399,3 +399,56 @@ export const initialNotifications: LayerNotification[] = [
   { id: 'n-7', layer: 'ROUTINE', title: 'STREETLIGHT AUTO-DIMMED', message: 'Sector 4 PIR lights auto-dimmed to 30% ambient lux.', timestamp: '2 hours ago', read: true, category: 'System', actionButtonLabel: 'Lighting Grid', actionTabTarget: 'lighting' }
 ];
 
+// 🛡️ Clean Production Zero/Empty State Defaults
+// Used during initial boot and unauthenticated / live telemetry states.
+// Operational data will be exclusively populated from the authenticated backend / MySQL database.
+export const emptyWaterData: WaterData = {
+  mainTankLevel: 0,
+  undergroundSumpLevel: 0,
+  overheadTankBlockB: 0,
+  predictedShortageHours: 0,
+  predictedShortageBlock: 'None',
+  municipalSupplyActive: false,
+  municipalSupplyEnds: '--',
+  mainPumpStatus: 'IDLE',
+  standbyPumpStatus: 'IDLE',
+  leakageDetected: false,
+  leakageConfidence: 0,
+  leakageLocation: 'None',
+  valveClosed: false,
+  historicalFlow: []
+};
+
+export const emptyFireData: FireEmergencyData = {
+  isActive: false,
+  location: 'Normal Operations',
+  smokeLevel: 0,
+  heatLevel: 0,
+  alarmActive: false,
+  confidenceScore: 0,
+  assistanceNeeded: [],
+  evacuationRoutes: []
+};
+
+export const emptyLiftStatus: LiftStatus = {
+  liftId: 'Lift 1',
+  tower: 'Tower A',
+  status: 'NORMAL',
+  trappedDurationSeconds: 0,
+  floors: 'Ground Floor',
+  errorCode: 'None',
+  cabinOccupied: false,
+  technicianEtaMinutes: 0,
+  voiceReassuranceSent: false
+};
+
+export const emptyNoiseData: NoiseData = {
+  currentDecibels: 0,
+  quietHoursActive: false,
+  decibelHistory: [],
+  currentViolationStage: 0,
+  targetUnit: undefined,
+  durationMins: 0
+};
+
+

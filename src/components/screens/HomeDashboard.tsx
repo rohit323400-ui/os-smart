@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   CheckCircle2
 } from 'lucide-react';
-import type { WaterData, LiftStatus, FireEmergencyData, ParkingSlot } from '../../data/mockData';
+import type { WaterData, LiftStatus, FireEmergencyData, ParkingSlot, VisitorRequest, MaintenanceTicket } from '../../data/mockData';
 import { getTranslation } from '../../utils/i18n';
 
 interface HomeDashboardProps {
@@ -20,6 +20,9 @@ interface HomeDashboardProps {
   liftStatus: LiftStatus;
   fireData: FireEmergencyData;
   parkingSlots: ParkingSlot[];
+  visitorRequests?: VisitorRequest[];
+  maintenanceTickets?: MaintenanceTicket[];
+  isBackendConnected?: boolean;
   onNavigateTab: (tab: any) => void;
   activeScenario: string;
   userRole?: string;
@@ -31,6 +34,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   liftStatus,
   fireData,
   parkingSlots,
+  visitorRequests = [],
+  maintenanceTickets = [],
+  isBackendConnected = false,
   onNavigateTab,
   activeScenario,
   userRole,
@@ -38,6 +44,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 }) => {
   const freeSlotsCount = parkingSlots.filter((s) => s.status === 'vacant').length;
   const sharedSlotsCount = parkingSlots.filter((s) => s.status === 'shared').length;
+  const pendingVisitors = visitorRequests.filter((v) => v.status === 'pending');
+  const activeTickets = maintenanceTickets.filter((t) => t.status !== 'Resolved');
 
   return (
     <div className="space-y-6 pb-12">
@@ -84,7 +92,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               </div>
               <p className="text-[11px] text-slate-400">
                 {activeScenario === 'NORMAL'
-                  ? 'All subsystems functioning within optimal parameters.'
+                  ? (isBackendConnected ? 'All live subsystems functioning within normal parameters.' : 'Standing by for live telemetry stream from IoT Gateway.')
                   : '1 Critical priority incident staged for human verification.'}
               </p>
             </div>
@@ -119,10 +127,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               >
                 <div className="flex items-center justify-between text-xs font-bold text-red-400 mb-1">
                   <span className="flex items-center gap-1"><Flame className="w-4 h-4" /> FIRE ALERT</span>
-                  <span>96% CONFIDENCE</span>
+                  <span>{fireData.confidenceScore ? `${fireData.confidenceScore}% CONFIDENCE` : 'VERIFIED'}</span>
                 </div>
                 <div className="text-sm font-bold text-white">{fireData.location}</div>
-                <p className="text-xs text-slate-300 mt-1">3 Active Smoke Sensors • Evacuation routes active</p>
+                <p className="text-xs text-slate-300 mt-1">Smoke Level: {fireData.smokeLevel}% • Evacuation routes active</p>
                 <div className="mt-3 text-xs text-red-400 font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                   View 3D Evacuation Plan <ArrowRight className="w-3 h-3" />
                 </div>
@@ -137,10 +145,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               >
                 <div className="flex items-center justify-between text-xs font-bold text-amber-400 mb-1">
                   <span className="flex items-center gap-1"><Wrench className="w-4 h-4" /> LIFT TRAPPED</span>
-                  <span>E-301 FAULT</span>
+                  <span>{liftStatus.errorCode || 'FAULT'}</span>
                 </div>
                 <div className="text-sm font-bold text-white">{liftStatus.tower} - {liftStatus.liftId}</div>
-                <p className="text-xs text-slate-300 mt-1">Stuck at Floors 3-4 • Trapped: 04:18 Min • Tech ETA: 3m</p>
+                <p className="text-xs text-slate-300 mt-1">Location: {liftStatus.floors} • Technician ETA: {liftStatus.technicianEtaMinutes}m</p>
                 <div className="mt-3 text-xs text-amber-400 font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                   Open Live Cabin Cam <ArrowRight className="w-3 h-3" />
                 </div>
@@ -155,10 +163,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               >
                 <div className="flex items-center justify-between text-xs font-bold text-cyan-400 mb-1">
                   <span className="flex items-center gap-1"><Droplets className="w-4 h-4" /> LEAKAGE ANOMALY</span>
-                  <span>91% CONFIDENCE</span>
+                  <span>{waterData.leakageConfidence ? `${waterData.leakageConfidence}% CONFIDENCE` : 'DETECTED'}</span>
                 </div>
                 <div className="text-sm font-bold text-white">{waterData.leakageLocation}</div>
-                <p className="text-xs text-slate-300 mt-1">Overnight Flow Spike • Main Valve V-102 Closed</p>
+                <p className="text-xs text-slate-300 mt-1">Valve Status: {waterData.valveClosed ? 'Closed (Isolated)' : 'Open'}</p>
                 <div className="mt-3 text-xs text-cyan-400 font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                   Inspect Flow Telemetry <ArrowRight className="w-3 h-3" />
                 </div>
@@ -179,25 +187,32 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
               <Droplets className="w-5 h-5" />
             </div>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              Shortage Warning
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+              waterData.mainTankLevel > 0 && waterData.mainTankLevel < 25
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+            }`}>
+              {waterData.mainTankLevel === 0 ? 'Awaiting Telemetry' : waterData.mainTankLevel < 25 ? 'Low Level' : 'Optimal Level'}
             </span>
           </div>
 
           <div className="text-xs font-bold text-slate-400">WATER RESERVOIR CAPACITY</div>
           <div className="text-2xl font-extrabold text-white mt-1 flex items-baseline gap-2">
-            34%
+            {waterData.mainTankLevel > 0 ? `${waterData.mainTankLevel}%` : 'Standby'}
             <span className="text-xs font-normal text-slate-400">Total Tank Vol</span>
           </div>
 
-          {/* Mini Progress Bar */}
+          {/* Dynamic Progress Bar */}
           <div className="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-            <div className="bg-gradient-to-r from-amber-500 to-cyan-400 h-full rounded-full w-[34%]" />
+            <div
+              className="bg-gradient-to-r from-amber-500 to-cyan-400 h-full rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, waterData.mainTankLevel))}%` }}
+            />
           </div>
 
           <div className="mt-3 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Predicted Shortage:</span>
-            <span className="font-bold text-amber-400">{waterData.predictedShortageBlock} (in 2 hrs)</span>
+            <span className="text-slate-400">Pump State:</span>
+            <span className="font-bold text-cyan-400">{waterData.mainPumpStatus || 'IDLE'}</span>
           </div>
         </div>
 
@@ -211,7 +226,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <Car className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              24/7 AI Optimized
+              {parkingSlots.length > 0 ? `${parkingSlots.length} Total Slots` : 'Parking Grid'}
             </span>
           </div>
 
@@ -221,18 +236,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <span className="text-xs font-normal text-emerald-400">({sharedSlotsCount} Shared Active)</span>
           </div>
 
-          {/* Mini Progress Bar */}
+          {/* Dynamic Progress Bar */}
           <div className="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full w-[70%]" />
+            <div
+              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${parkingSlots.length > 0 ? Math.round((freeSlotsCount / parkingSlots.length) * 100) : 0}%` }}
+            />
           </div>
 
           <div className="mt-3 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Your Slot #42:</span>
-            <span className="font-bold text-cyan-400">Sharing active (9am-5pm)</span>
+            <span className="text-slate-400">Occupancy:</span>
+            <span className="font-bold text-cyan-400">
+              {parkingSlots.length > 0 ? `${parkingSlots.length - freeSlotsCount} Occupied` : 'Awaiting DB Sync'}
+            </span>
           </div>
         </div>
 
-        {/* Smart Lighting & Power Grid */}
+        {/* Maintenance / Power Grid */}
         <div
           onClick={() => onNavigateTab('maintenance')}
           className="glass-panel glass-panel-hover rounded-2xl p-4 cursor-pointer relative overflow-hidden group"
@@ -242,23 +262,28 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <Zap className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              Solar Active
+              Solar & Grid
             </span>
           </div>
 
-          <div className="text-xs font-bold text-slate-400">COMMON AREA POWER GRID</div>
+          <div className="text-xs font-bold text-slate-400">FACILITY TICKETS & GRID</div>
           <div className="text-2xl font-extrabold text-white mt-1 flex items-baseline gap-2">
-            38% Saved
-            <span className="text-xs font-normal text-slate-400">Auto Dimming</span>
+            {activeTickets.length} Active
+            <span className="text-xs font-normal text-slate-400">Open Tickets</span>
           </div>
 
           <div className="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-            <div className="bg-indigo-500 h-full rounded-full w-[85%]" />
+            <div
+              className="bg-indigo-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${activeTickets.length > 0 ? Math.min(100, activeTickets.length * 25) : 10}%` }}
+            />
           </div>
 
           <div className="mt-3 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Fault Detection:</span>
-            <span className="font-bold text-slate-300">Pole #3 Ticket #1042 Logged</span>
+            <span className="text-slate-400">Status:</span>
+            <span className="font-bold text-slate-300">
+              {activeTickets.length > 0 ? `${activeTickets[0].title.slice(0, 24)}...` : 'All Systems Operational'}
+            </span>
           </div>
         </div>
 
@@ -272,23 +297,30 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
-              Gate Active
+              {pendingVisitors.length > 0 ? 'Pending Approvals' : 'Gate Active'}
             </span>
           </div>
 
           <div className="text-xs font-bold text-slate-400">GATE VISITOR ACCESS</div>
           <div className="text-2xl font-extrabold text-white mt-1 flex items-baseline gap-2">
-            1 Visitor
-            <span className="text-xs font-normal text-amber-400">Action Required</span>
+            {pendingVisitors.length} Visitors
+            <span className="text-xs font-normal text-amber-400">
+              {pendingVisitors.length > 0 ? 'Action Required' : 'Cleared'}
+            </span>
           </div>
 
           <div className="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
-            <div className="bg-purple-500 h-full rounded-full w-[95%]" />
+            <div
+              className="bg-purple-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${pendingVisitors.length > 0 ? 85 : 15}%` }}
+            />
           </div>
 
           <div className="mt-3 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Latest Entry:</span>
-            <span className="font-bold text-cyan-400">Priya S. (Ekart Courier)</span>
+            <span className="text-slate-400">Latest Visitor:</span>
+            <span className="font-bold text-cyan-400 truncate max-w-[140px]">
+              {visitorRequests.length > 0 ? visitorRequests[0].name : 'No Recent Visitors'}
+            </span>
           </div>
         </div>
       </div>

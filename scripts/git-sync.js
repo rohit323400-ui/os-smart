@@ -2,6 +2,24 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+const gitCandidatePaths = [
+  'git',
+  path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'cmd', 'git.exe'),
+  'C:\\Program Files\\Git\\cmd\\git.exe',
+  'C:\\Program Files (x86)\\Git\\cmd\\git.exe'
+];
+
+let gitBin = 'git';
+for (const p of gitCandidatePaths) {
+  try {
+    execSync(`"${p}" --version`, { stdio: 'ignore' });
+    gitBin = `"${p}"`;
+    break;
+  } catch {
+    // try next
+  }
+}
+
 function run(command) {
   try {
     return execSync(command, { stdio: 'pipe', encoding: 'utf-8' }).trim();
@@ -11,7 +29,7 @@ function run(command) {
 }
 
 function syncToGitHub(customMessage = null) {
-  const status = run('git status --porcelain');
+  const status = run(`${gitBin} status --porcelain`);
   if (!status) {
     console.log('⚡ Koi naya badlaav nahi hai (Working tree clean).');
     return false;
@@ -23,9 +41,9 @@ function syncToGitHub(customMessage = null) {
   console.log(`\n📦 Naye changes mile! GitHub par upload ho raha hai...`);
   console.log(`💬 Commit Message: "${message}"`);
 
-  run('git add .');
-  run(`git commit -m "${message}"`);
-  const pushResult = run('git push origin main');
+  run(`${gitBin} add .`);
+  run(`${gitBin} commit -m "${message}"`);
+  run(`${gitBin} push origin main`);
   
   console.log(`✅ GitHub par successfully upload ho gaya! [${timestamp}]\n`);
   return true;
