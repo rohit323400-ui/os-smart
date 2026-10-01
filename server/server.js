@@ -46,8 +46,8 @@ if (geminiApiKey && geminiApiKey.trim() !== '' && geminiApiKey !== 'your_gemini_
   console.log('💡 Note: GEMINI_API_KEY not configured. Operating in safe advisory simulation.');
 }
 
-// In-Memory Telemetry Cache (Synchronized with MySQL raah_nagar_db)
-let telemetryCache = {
+// 🧪 Isolated Demo & Simulation Fixtures (Strictly for explicit simulation sandboxes; NEVER served as live production telemetry)
+export const DEMO_SIMULATION_FIXTURES = {
   waterData: {
     overheadTank: 74,
     undergroundSump: 92,
@@ -60,21 +60,8 @@ let telemetryCache = {
     pumpOperationalState: 'OFF',
     valveClosed: false,
     leakageDetected: false,
-    lastQualityCheck: 'Today, 08:30 AM'
+    lastQualityCheck: 'Simulation Baseline'
   },
-  parkingSlots: [],
-  fireEmergencyData: {
-    isAlarmActive: false,
-    affectedZone: 'None',
-    smokeSensorsActive: 48,
-    sprinklersStatus: 'STANDBY', // STANDBY | MANUAL_OVERRIDE_ENABLED
-    fireDeptStatus: 'NOT_DISPATCHED', // NOT_DISPATCHED | EMERGENCY_DESK_ALERTED
-    evacuationRouteOpen: true
-  },
-  visitorRequests: [],
-  maintenanceTickets: [],
-  liftStatuses: [],
-  wasteBins: [],
   noiseData: {
     currentDecibels: 48,
     targetUnit: 'B-304',
@@ -88,6 +75,43 @@ let telemetryCache = {
       { time: '23:15', db: 52 },
       { time: '23:30', db: 46 }
     ]
+  }
+};
+
+// 🛡️ Live Operational Telemetry Cache (Strictly zero/neutral defaults; populated ONLY by MySQL raah_nagar_db & real IoT Gateway)
+let telemetryCache = {
+  waterData: {
+    overheadTank: 0,
+    undergroundSump: 0,
+    recycledWater: 0,
+    phLevel: 0,
+    tdsLevel: 0,
+    todayConsumptionLiters: 0,
+    flowRateLPM: 0,
+    pumpAutoCutoffActive: false,
+    pumpOperationalState: 'STANDBY',
+    valveClosed: false,
+    leakageDetected: false,
+    lastQualityCheck: 'Awaiting Live IoT Telemetry'
+  },
+  parkingSlots: [],
+  fireEmergencyData: {
+    isAlarmActive: false,
+    affectedZone: 'None',
+    smokeSensorsActive: 0,
+    sprinklersStatus: 'STANDBY',
+    fireDeptStatus: 'NOT_DISPATCHED',
+    evacuationRouteOpen: true
+  },
+  visitorRequests: [],
+  maintenanceTickets: [],
+  liftStatuses: [],
+  wasteBins: [],
+  noiseData: {
+    currentDecibels: 0,
+    targetUnit: null,
+    currentViolationStage: 0,
+    decibelHistory: []
   },
   resourceItems: [],
   actionLogs: []
@@ -432,8 +456,18 @@ app.get('/api/water', authenticateToken, (req, res) => res.json(telemetryCache.w
 
 // Dispatch Pump Command (Stays PENDING until IoT Gateway reports actual physical state)
 app.post('/api/water/pump-command', authenticateToken, requirePermission(PERMISSIONS.EQUIPMENT_CONTROL), async (req, res) => {
-  const { command, deviceId = 'PUMP-MAIN-01' } = req.body; // 'START' | 'STOP'
+  const { command, deviceId = 'PUMP-MAIN-01', isSimulation = false } = req.body; // 'START' | 'STOP'
   const requestedBy = req.user.id;
+
+  // 🛡️ Simulation isolation: NEVER actuate physical motor in simulation
+  if (isSimulation) {
+    return res.json({
+      success: true,
+      isSimulation: true,
+      status: 'SIMULATED',
+      message: '[SIMULATION_MODE] Pump command sandboxed; zero physical motor actuated.'
+    });
+  }
 
   try {
     const commandId = await createDeviceCommand({
@@ -483,17 +517,64 @@ app.post('/api/iot/gateway/telemetry', async (req, res) => {
     }
     await query('UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1', [operationalState]);
     broadcast('WATER_UPDATED', telemetryCache.waterData);
+  } else if (deviceType === 'WATER_VALVE' && operationalState) {
+    const isClosed = operationalState === 'CLOSED';
+    telemetryCache.waterData.valveClosed = isClosed;
+    if (commandId) {
+      await confirmDeviceCommand(commandId, 'CONFIRMED');
+    }
+    broadcast('WATER_UPDATED', telemetryCache.waterData);
   }
 
   res.json({ success: true, message: `Physical telemetry confirmed and ingested for ${deviceId}` });
 });
 
-// Water Valve Manual Shutoff Command
+// Water Valve Manual Shutoff Command (Command vs Actual State Pattern & Simulation Isolation)
 app.post('/api/water/valve-command', authenticateToken, requirePermission(PERMISSIONS.EQUIPMENT_CONTROL), async (req, res) => {
-  const { closed } = req.body;
-  telemetryCache.waterData.valveClosed = !!closed;
-  broadcast('WATER_UPDATED', telemetryCache.waterData);
-  res.json({ success: true, valveClosed: telemetryCache.waterData.valveClosed });
+  const { closed, deviceId = 'VALVE-MAIN-V102', isSimulation = false } = req.body;
+  const requestedBy = req.user.id;
+  const command = closed ? 'CLOSE' : 'OPEN';
+
+  // 🛡️ Simulation isolation: NEVER actuate physical device or write hardware commands in simulation
+  if (isSimulation) {
+    return res.json({
+      success: true,
+      isSimulation: true,
+      valveClosed: !!closed,
+      message: '[SIMULATION_MODE] Valve state simulated in sandbox. Zero real equipment actuated.'
+    });
+  }
+
+  try {
+    const commandId = await createDeviceCommand({
+      deviceId,
+      deviceType: 'WATER_VALVE',
+      command,
+      requestedBy
+    });
+
+    await recordAuditLog({
+      userId: requestedBy,
+      userRole: req.user.role,
+      action: `VALVE_${command}_COMMAND_QUEUED`,
+      entityType: 'WATER_VALVE',
+      entityId: deviceId,
+      oldValue: { valveClosed: telemetryCache.waterData.valveClosed },
+      newValue: { command, commandId },
+      ip: req.ip
+    });
+
+    res.json({
+      success: true,
+      message: `Valve command '${command}' queued with ID ${commandId}. State remains PENDING until physical valve controller reports telemetry confirmation.`,
+      commandId,
+      status: 'PENDING',
+      awaitingPhysicalGateway: true,
+      currentValveState: telemetryCache.waterData.valveClosed
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to issue valve command: ' + err.message });
+  }
 });
 
 // 5. Smart Parking
@@ -532,6 +613,17 @@ app.get('/api/fire', authenticateToken, (req, res) => res.json(telemetryCache.fi
 
 app.post('/api/fire/trigger', rateLimit({ windowMs: 60000, maxRequests: 5 }), authenticateToken, requirePermission(PERMISSIONS.EMERGENCY_CONTROL), async (req, res) => {
   const zone = req.body.zone || 'Tower B Floor 4';
+  const isSimulation = !!req.body.isSimulation;
+
+  // 🛡️ Simulation isolation: NEVER trigger real sirens, external fire desks, or SMS in simulation
+  if (isSimulation) {
+    return res.json({
+      success: true,
+      isSimulation: true,
+      message: '[SIMULATION_MODE] Fire emergency sandboxed; zero sirens, SMS, or fire dept alerted.'
+    });
+  }
+
   const oldData = { ...telemetryCache.fireEmergencyData };
 
   // Note: Software flags emergency reported; does NOT claim automated sprinkler discharge without physical confirmation
@@ -807,6 +899,17 @@ app.get('/api/lift', authenticateToken, (req, res) => res.json(telemetryCache.li
 
 app.post('/api/lift/trigger-sos/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
+  const isSimulation = !!(req.body && req.body.isSimulation);
+
+  // 🛡️ Simulation isolation: NEVER trigger real lift technicians in simulation
+  if (isSimulation) {
+    return res.json({
+      success: true,
+      isSimulation: true,
+      message: '[SIMULATION_MODE] Lift SOS sandboxed in simulation; zero physical technicians dispatched.'
+    });
+  }
+
   const lift = telemetryCache.liftStatuses.find(l => l.id === id);
   if (!lift) return res.status(404).json({ success: false, error: 'Lift not found' });
 

@@ -16,6 +16,7 @@ interface WaterManagementProps {
   onConfirmVerification: () => void;
   currentLang?: string;
   defaultSubTab?: 'monitoring' | 'leakage';
+  valveStatus?: 'IDLE' | 'PENDING' | 'FAILED' | 'UNKNOWN';
 }
 
 export const WaterManagement: React.FC<WaterManagementProps> = ({
@@ -23,7 +24,8 @@ export const WaterManagement: React.FC<WaterManagementProps> = ({
   onToggleValve,
   onConfirmVerification,
   currentLang = 'en',
-  defaultSubTab = 'monitoring'
+  defaultSubTab = 'monitoring',
+  valveStatus = 'IDLE'
 }) => {
   const [isAdminVerified, setIsAdminVerified] = useState<boolean>(false);
   const [activeSubTab, setActiveSubTab] = useState<'monitoring' | 'leakage'>(defaultSubTab);
@@ -251,11 +253,26 @@ export const WaterManagement: React.FC<WaterManagementProps> = ({
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-1">
                 <div className="flex items-center justify-between text-xs font-bold">
                   <span className="text-slate-300">Valve V-102 State:</span>
-                  <span className={waterData.valveClosed ? 'text-cyan-400' : 'text-emerald-400'}>
-                    {waterData.valveClosed ? 'CLOSED (ISOLATED)' : 'OPEN'}
+                  <span className={
+                    valveStatus === 'PENDING' ? 'text-amber-400 animate-pulse' :
+                    valveStatus === 'FAILED' ? 'text-red-400 font-black' :
+                    valveStatus === 'UNKNOWN' ? 'text-slate-400' :
+                    waterData.valveClosed ? 'text-cyan-400' : 'text-emerald-400'
+                  }>
+                    {valveStatus === 'PENDING'
+                      ? 'PENDING CONFIRMATION...'
+                      : valveStatus === 'FAILED'
+                      ? 'COMMAND FAILED ✗'
+                      : valveStatus === 'UNKNOWN'
+                      ? 'UNKNOWN STATE ⚠️'
+                      : waterData.valveClosed
+                      ? 'CLOSED (ISOLATED)'
+                      : 'OPEN'}
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-400">Motorized solenoid valve controller</p>
+                <p className="text-[10px] text-slate-400">
+                  {valveStatus === 'PENDING' ? 'Awaiting physical IoT Gateway ACK' : 'Motorized solenoid valve controller'}
+                </p>
               </div>
             </div>
 
@@ -273,13 +290,20 @@ export const WaterManagement: React.FC<WaterManagementProps> = ({
 
               <button
                 onClick={onToggleValve}
-                className={`w-full py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                  waterData.valveClosed
-                    ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    : 'bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30'
+                disabled={valveStatus === 'PENDING'}
+                className={`w-full py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                  valveStatus === 'PENDING'
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 cursor-wait'
+                    : waterData.valveClosed
+                    ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 cursor-pointer'
+                    : 'bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30 cursor-pointer'
                 }`}
               >
-                {waterData.valveClosed ? 'Re-Open Valve V-102' : 'Shut-Off Valve V-102 Now'}
+                {valveStatus === 'PENDING'
+                  ? 'Awaiting Controller Telemetry...'
+                  : waterData.valveClosed
+                  ? 'Re-Open Valve V-102'
+                  : 'Shut-Off Valve V-102 Now'}
               </button>
             </div>
           </div>

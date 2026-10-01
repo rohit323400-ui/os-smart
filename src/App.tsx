@@ -27,15 +27,9 @@ import { AiChatAssistant } from './components/AiChatAssistant';
 import {
   fetchFullSync,
   connectRealtime,
-  triggerFireEmergency,
-  resetFireEmergency,
   approveVisitor,
-  escalateNoise,
-  resetNoise,
   sendValveCommand,
   toggleParkingSlot,
-  triggerLiftSos,
-  resetLiftSos,
   dispatchWasteVendor,
   bookResource,
   createMaintenanceTicket,
@@ -265,6 +259,7 @@ export function App() {
   const [resourceItems, setResourceItems] = useState<ResourceItem[]>([]);
   const [actionLogs, setActionLogs] = useState<ActionLogItem[]>([]);
   const [isBackendConnected, setIsBackendConnected] = useState<boolean>(false);
+  const [valveStatus, setValveStatus] = useState<'IDLE' | 'PENDING' | 'FAILED' | 'UNKNOWN'>('IDLE');
 
   // Helper to dispatch backend sync data to state
   const applyBackendSyncData = (data: any) => {
@@ -344,6 +339,7 @@ export function App() {
       if (type === 'INITIAL_SYNC' && payload) {
         applyBackendSyncData(payload);
       } else if (type === 'WATER_UPDATED' && payload) {
+        setValveStatus('IDLE');
         setWaterData(normalizeWaterData(payload));
       } else if (type === 'PARKING_UPDATED' && payload) {
         setParkingSlots(normalizeParkingSlots(payload));
@@ -378,34 +374,32 @@ export function App() {
   }
 
   // 🧪 Explicit Scenario / Simulation Mode Handlers
-  // Mock data is strictly reserved for user-invoked simulation scenarios.
+  // 🛡️ CRITICAL SAFETY RULE: Simulation mode NEVER triggers real physical devices, sirens, SMS, or external dispatches.
   const handleSelectScenario = (scenario: 'NORMAL' | 'FIRE' | 'WATER' | 'LIFT' | 'NOISE') => {
     setActiveScenario(scenario);
     if (scenario === 'FIRE') {
       setIsDemoMode(true);
-      triggerFireEmergency();
+      // Sandbox preview only: NEVER dispatch real fire emergency to backend!
       setFireData(initialFireData);
       setActiveTab('fire');
     } else if (scenario === 'WATER') {
       setIsDemoMode(true);
+      // Sandbox preview only: NEVER dispatch real valve commands
       setWaterData({ ...initialWaterData, leakageDetected: true });
       setActiveTab('water-leakage');
     } else if (scenario === 'LIFT') {
       setIsDemoMode(true);
-      triggerLiftSos('l1');
+      // Sandbox preview only: NEVER dispatch real lift emergency technicians
       setLiftStatus(initialLiftStatus);
       setActiveTab('lift');
     } else if (scenario === 'NOISE') {
       setIsDemoMode(true);
-      escalateNoise();
+      // Sandbox preview only: NEVER dispatch real noise escalation
       setNoiseData(initialNoiseData);
       setActiveTab('noise');
     } else {
       // Revert from simulation back to live production data
       setIsDemoMode(false);
-      resetFireEmergency();
-      resetLiftSos('l1');
-      resetNoise();
       setActiveTab('home');
 
       // Refresh live state directly from MySQL backend
@@ -422,14 +416,45 @@ export function App() {
     }
   };
 
-  // Real Water Valve Action
+  // 🚰 Physical Water Valve Action (Strict Command vs Device Telemetry Pattern)
   const handleToggleValve = async () => {
+    // 🛡️ In simulation mode, only toggle the sandbox UI state without real IoT actuation
+    if (isDemoMode) {
+      setWaterData((prev) => ({ ...prev, valveClosed: !prev.valveClosed }));
+      return;
+    }
+
     const nextState = !waterData.valveClosed;
-    const res = await sendValveCommand(nextState);
-    if (res && res.success) {
-      setWaterData((prev) => ({ ...prev, valveClosed: res.valveClosed }));
-    } else {
-      setWaterData((prev) => ({ ...prev, valveClosed: nextState }));
+    setValveStatus('PENDING');
+
+    try {
+      const res = await sendValveCommand(nextState, false);
+
+      if (!res || !res.success) {
+        // 🛡️ CRITICAL RULE: NEVER update physical valve UI state locally when the API command fails!
+        setValveStatus('FAILED');
+        setTimeout(() => setValveStatus('IDLE'), 4000);
+        return;
+      }
+
+      // If command was queued and awaiting physical gateway confirmation
+      if (res.status === 'PENDING' || res.awaitingPhysicalGateway) {
+        setValveStatus('PENDING');
+        // Do NOT update waterData.valveClosed locally; wait for real IoT Gateway telemetry via WebSocket
+        return;
+      }
+
+      // Only if backend directly confirmed physical device state
+      if (typeof res.valveClosed === 'boolean') {
+        setValveStatus('IDLE');
+        setWaterData((prev) => ({ ...prev, valveClosed: res.valveClosed }));
+      } else {
+        setValveStatus('UNKNOWN');
+      }
+    } catch {
+      // Network or unhandled failure
+      setValveStatus('FAILED');
+      setTimeout(() => setValveStatus('IDLE'), 4000);
     }
   };
 
@@ -570,6 +595,7 @@ export function App() {
             onConfirmVerification={handleConfirmWaterVerification}
             currentLang={currentLang}
             defaultSubTab="monitoring"
+            valveStatus={valveStatus}
           />
         )}
 
@@ -580,6 +606,7 @@ export function App() {
             onConfirmVerification={handleConfirmWaterVerification}
             currentLang={currentLang}
             defaultSubTab="leakage"
+            valveStatus={valveStatus}
           />
         )}
 

@@ -1,5 +1,5 @@
-const API_BASE_URL = 'http://localhost:5000/api';
-const WS_URL = 'ws://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5000/api` : 'http://localhost:5000/api');
+const WS_URL = import.meta.env.VITE_WS_URL || (typeof window !== 'undefined' ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:5000` : 'ws://localhost:5000');
 
 export interface BackendDataSync {
   waterData: any;
@@ -86,12 +86,12 @@ export async function sendPumpCommand(command: 'START' | 'STOP', deviceId?: stri
   }
 }
 
-export async function sendValveCommand(closed: boolean) {
+export async function sendValveCommand(closed: boolean, isSimulation = false) {
   try {
     const res = await fetch(`${API_BASE_URL}/water/valve-command`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ closed })
+      body: JSON.stringify({ closed, isSimulation })
     });
     return await res.json();
   } catch (err) {
