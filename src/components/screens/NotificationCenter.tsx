@@ -1,26 +1,151 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Bell, Flame, Droplets, ArrowUpDown, ShieldCheck, Trash2, Volume2, Info, CheckCircle2, AlertTriangle, Layers, Filter } from 'lucide-react';
 import { getTranslation } from '../../utils/i18n';
-import { initialNotifications, type LayerNotification } from '../../data/mockData';
+import type {
+  LayerNotification,
+  FireEmergencyData,
+  LiftStatus,
+  WaterData,
+  VisitorRequest,
+  MaintenanceTicket,
+  NoiseData
+} from '../../data/mockData';
 import { type ModuleTab } from '../ModuleNavigation';
 
 interface NotificationCenterProps {
   currentLang?: string;
   onNavigateTab?: (tab: ModuleTab) => void;
+  fireData?: FireEmergencyData;
+  liftStatus?: LiftStatus;
+  waterData?: WaterData;
+  visitorRequests?: VisitorRequest[];
+  maintenanceTickets?: MaintenanceTicket[];
+  noiseData?: NoiseData;
 }
 
-export const NotificationCenter: React.FC<NotificationCenterProps> = ({ currentLang = 'en', onNavigateTab }) => {
-  const [notifications, setNotifications] = useState<LayerNotification[]>(initialNotifications);
+export const NotificationCenter: React.FC<NotificationCenterProps> = ({
+  currentLang = 'en',
+  onNavigateTab,
+  fireData,
+  liftStatus,
+  waterData,
+  visitorRequests = [],
+  maintenanceTickets = [],
+  noiseData
+}) => {
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [activeLayerFilter, setActiveLayerFilter] = useState<'ALL' | 'CRITICAL' | 'INFO' | 'ROUTINE'>('ALL');
 
+  // Derive notifications 100% from real verified database and device state
+  const notifications: LayerNotification[] = useMemo(() => {
+    const list: LayerNotification[] = [];
+
+    if (fireData?.isActive) {
+      list.push({
+        id: 'notif-fire-live',
+        layer: 'CRITICAL',
+        title: 'FIRE EMERGENCY ACTIVE',
+        message: `Emergency sensor alarm triggered in ${fireData.affectedZone || 'Tower Sector'}. Evacuation route is operational.`,
+        timestamp: 'LIVE',
+        read: readIds.has('notif-fire-live'),
+        actionRequired: true,
+        actionTab: 'fire',
+        soundPlayed: true
+      });
+    }
+
+    if (liftStatus?.status === 'TRAPPED_EMERGENCY') {
+      list.push({
+        id: 'notif-lift-live',
+        layer: 'CRITICAL',
+        title: 'ELEVATOR SOS TRAPPED OCCUPANT',
+        message: `${liftStatus.liftName} SOS button engaged. ARD and maintenance crew notified.`,
+        timestamp: 'LIVE',
+        read: readIds.has('notif-lift-live'),
+        actionRequired: true,
+        actionTab: 'lift',
+        soundPlayed: true
+      });
+    }
+
+    if (waterData?.leakageDetected) {
+      list.push({
+        id: 'notif-water-live',
+        layer: 'CRITICAL',
+        title: 'CRITICAL WATER PIPE SURGE',
+        message: `Abnormal flow rate of ${waterData.flowRateLPM} LPM detected. Motorized valve V-102 isolation queued.`,
+        timestamp: 'LIVE',
+        read: readIds.has('notif-water-live'),
+        actionRequired: true,
+        actionTab: 'water',
+        soundPlayed: true
+      });
+    }
+
+    visitorRequests
+      .filter((v) => v.status === 'PENDING' || v.status === 'pending')
+      .forEach((v) => {
+        const id = `notif-vis-${v.id}`;
+        list.push({
+          id,
+          layer: 'INFO',
+          title: `Gate Verification: ${v.visitorName}`,
+          message: `Visitor arriving for unit ${v.unitNumber}. Awaiting guard or resident confirmation.`,
+          timestamp: v.entryTime || 'Pending',
+          read: readIds.has(id),
+          actionRequired: true,
+          actionTab: 'visitors'
+        });
+      });
+
+    if (noiseData && noiseData.currentViolationStage > 0) {
+      const id = 'notif-noise-live';
+      list.push({
+        id,
+        layer: 'INFO',
+        title: `Acoustic Threshold Exceeded (${noiseData.currentDecibels} dB)`,
+        message: `Acoustic monitor detected persistent sound levels in unit ${noiseData.targetUnit || 'Monitored Flat'}.`,
+        timestamp: 'Active',
+        read: readIds.has(id),
+        actionRequired: false,
+        actionTab: 'noise'
+      });
+    }
+
+    maintenanceTickets
+      .filter((t) => t.status === 'OPEN')
+      .slice(0, 5)
+      .forEach((t) => {
+        const id = `notif-tick-${t.id}`;
+        list.push({
+          id,
+          layer: 'ROUTINE',
+          title: `Ticket Logged: ${t.title}`,
+          message: `Unit ${t.unit} • Priority: ${t.priority} • Tech: ${t.technician || 'Unassigned'}`,
+          timestamp: t.date || 'Today',
+          read: readIds.has(id),
+          actionRequired: false,
+          actionTab: 'maintenance'
+        });
+      });
+
+    return list;
+  }, [fireData, liftStatus, waterData, visitorRequests, maintenanceTickets, noiseData, readIds]);
+
   const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setReadIds(new Set(notifications.map((n) => n.id)));
   };
 
   const handleToggleRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: !n.read } : n))
-    );
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
   const filteredNotifs = notifications.filter((n) => {

@@ -309,8 +309,6 @@ export function App() {
     setResourceItems([]);
     setActionLogs([]);
     setIsBackendConnected(false);
-    setIsDemoMode(false);
-    setActiveScenario('NORMAL');
   };
 
   const handleUpdateUser = (updatedUser: UserProfileData) => {
@@ -371,6 +369,15 @@ export function App() {
   } else if (visitorRequests.some((r) => r.status === 'pending') || noiseData.currentViolationStage > 0) {
     systemState = 'ATTENTION';
   }
+
+  // 🔔 Authenticated Real-Time Actionable / Unread Notification Count
+  const realNotificationCount =
+    (fireData.isActive ? 1 : 0) +
+    (liftStatus.status === 'TRAPPED_EMERGENCY' ? 1 : 0) +
+    (waterData.leakageDetected ? 1 : 0) +
+    visitorRequests.filter((v) => v.status === 'PENDING' || v.status === 'pending').length +
+    maintenanceTickets.filter((t) => t.status === 'OPEN').length +
+    (noiseData.currentViolationStage > 0 ? 1 : 0);
 
   // 🚰 Physical Water Valve Action (Strict Command vs Device Telemetry Pattern)
   const handleToggleValve = async () => {
@@ -449,8 +456,8 @@ export function App() {
     await dispatchWasteVendor(binId, 'CleanCity Logistics');
   };
 
-  // Real Noise Escalation
-  const handleSimulateNoiseEscalation = async () => {
+  // Real Noise Escalation (Operator Action)
+  const handleAdvanceNoiseEscalation = async () => {
     await escalateNoise();
   };
 
@@ -467,7 +474,7 @@ export function App() {
         userRole={userRole}
         onSelectRole={setUserRole}
         onOpenNotifications={() => setIsNotifOpen(true)}
-        notificationCount={3}
+        notificationCount={realNotificationCount}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onOpenProfileModal={() => setIsProfileModalOpen(true)}
@@ -599,7 +606,7 @@ export function App() {
         {activeTab === 'noise' && (
           <NoiseGuardian
             noiseData={noiseData}
-            onSimulateEscalation={handleSimulateNoiseEscalation}
+            onAdvanceEscalation={handleAdvanceNoiseEscalation}
           />
         )}
 
@@ -619,7 +626,16 @@ export function App() {
         {activeTab === 'privacy' && <PrivacyCenter />}
 
         {activeTab === 'notifications' && (
-          <NotificationCenter currentLang={currentLang} onNavigateTab={setActiveTab} />
+          <NotificationCenter
+            currentLang={currentLang}
+            onNavigateTab={setActiveTab}
+            fireData={fireData}
+            liftStatus={liftStatus}
+            waterData={waterData}
+            visitorRequests={visitorRequests}
+            maintenanceTickets={maintenanceTickets}
+            noiseData={noiseData}
+          />
         )}
 
         {activeTab === 'settings' && (
@@ -632,10 +648,17 @@ export function App() {
         )}
       </main>
 
-      {/* Notifications Side Drawer */}
+      {/* Notifications Side Drawer (Dynamic Real Alerts) */}
       <NotificationsDrawer
         isOpen={isNotifOpen}
         onClose={() => setIsNotifOpen(false)}
+        fireData={fireData}
+        liftStatus={liftStatus}
+        waterData={waterData}
+        visitorRequests={visitorRequests}
+        maintenanceTickets={maintenanceTickets}
+        noiseData={noiseData}
+        actionLogs={actionLogs}
       />
 
       {/* Auth Modal */}

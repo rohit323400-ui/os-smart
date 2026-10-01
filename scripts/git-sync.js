@@ -23,7 +23,7 @@ for (const p of gitCandidatePaths) {
 function run(command) {
   try {
     return execSync(command, { stdio: 'pipe', encoding: 'utf-8' }).trim();
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -57,7 +57,6 @@ if (mode === 'watch') {
   console.log('Band karne ke liye Ctrl + C dabayein.\n');
 
   let timeoutId = null;
-  const watchedDirs = ['src', 'public', 'server', 'index.html', 'package.json'];
 
   const triggerSync = (filename) => {
     if (filename && (filename.includes('.git') || filename.includes('node_modules') || filename.includes('dist'))) {

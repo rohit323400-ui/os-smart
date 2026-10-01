@@ -9,12 +9,12 @@ import type { NoiseData } from '../../data/mockData';
 
 interface NoiseGuardianProps {
   noiseData: NoiseData;
-  onSimulateEscalation: () => void;
+  onAdvanceEscalation?: () => void;
 }
 
 export const NoiseGuardian: React.FC<NoiseGuardianProps> = ({
   noiseData,
-  onSimulateEscalation
+  onAdvanceEscalation
 }) => {
   return (
     <div className="space-y-6 pb-12">
@@ -66,12 +66,14 @@ export const NoiseGuardian: React.FC<NoiseGuardianProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={onSimulateEscalation}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20"
-            >
-              Advance Escalation Stage ({noiseData.currentViolationStage}/3)
-            </button>
+            {onAdvanceEscalation && (
+              <button
+                onClick={onAdvanceEscalation}
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-500/20 cursor-pointer"
+              >
+                Advance Escalation Stage ({noiseData.currentViolationStage}/3)
+              </button>
+            )}
           </div>
         </div>
       )}

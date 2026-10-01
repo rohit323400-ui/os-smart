@@ -29,14 +29,33 @@ export const MaintenanceDashboard: React.FC<MaintenanceDashboardProps> = ({
 
   const handleNlpProcess = (text: string) => {
     setInputText(text);
-    // Simulate NLP Triaging
-    setTimeout(() => {
-      setNlpOutput({
-        category: 'Electrical',
-        priority: 'MEDIUM',
-        location: 'Block C Pathway B'
-      });
-    }, 200);
+    if (!text.trim()) {
+      setNlpOutput(null);
+      return;
+    }
+    // Deterministic Client-Side NLP Triaging
+    const lower = text.toLowerCase();
+    let category = 'General';
+    let priority = 'MEDIUM';
+    if (lower.includes('water') || lower.includes('pipe') || lower.includes('leak')) {
+      category = 'Plumbing';
+      priority = 'HIGH';
+    } else if (lower.includes('light') || lower.includes('power') || lower.includes('spark') || lower.includes('wire')) {
+      category = 'Electrical';
+      priority = 'MEDIUM';
+    } else if (lower.includes('lift') || lower.includes('elevator') || lower.includes('stuck')) {
+      category = 'Elevator';
+      priority = 'HIGH';
+    } else if (lower.includes('fire') || lower.includes('smoke')) {
+      category = 'Safety';
+      priority = 'CRITICAL';
+    }
+
+    setNlpOutput({
+      category,
+      priority,
+      location: 'Resident Reporting Unit'
+    });
   };
 
   const handleCreateTicket = () => {

@@ -91,7 +91,7 @@ async function syncFromDatabase() {
     try {
       const devRows = await query('SELECT id, status, last_seen FROM iot_devices');
       devRows.forEach(d => { deviceMap[d.id] = d; });
-    } catch (e) {
+    } catch {
       // Table fallback
     }
 
@@ -364,7 +364,7 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'AUTH_SUCCESS', role: ws.userRole }));
         ws.send(JSON.stringify({ type: 'INITIAL_SYNC', payload: scopedSync }));
       }
-    } catch (e) {
+    } catch {
       ws.send(JSON.stringify({ type: 'ERROR', error: 'Invalid authentication credentials or signature.' }));
       ws.close(4003, 'Forbidden');
     }
@@ -419,7 +419,7 @@ app.get('/api/flats', async (req, res) => {
   try {
     const flats = await query('SELECT flat_number, tower, floor, occupancy_status FROM society_flats ORDER BY tower, flat_number');
     res.json({ success: true, flats });
-  } catch (err) {
+  } catch {
     res.json({ success: true, flats: [] });
   }
 });

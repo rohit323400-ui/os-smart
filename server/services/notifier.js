@@ -8,7 +8,7 @@
 import net from 'net';
 import tls from 'tls';
 
-export async function sendSmsNotification({ toPhone, message, priority = 'NORMAL' }) {
+export async function sendSmsNotification({ toPhone, message, priority: _priority = 'NORMAL' }) {
   const smsApiKey = process.env.SMS_API_KEY;
   const smsProvider = (process.env.SMS_PROVIDER || 'FAST2SMS').toUpperCase(); // 'TWILIO' | 'FAST2SMS'
 

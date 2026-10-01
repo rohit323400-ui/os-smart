@@ -39,7 +39,7 @@ export const GuestParking: React.FC<GuestParkingProps> = ({ currentLang = 'en' }
     setShowModal(false);
   };
 
-  const handleSimulateReroute = (passId: string) => {
+  const handleTriggerReroute = (passId: string) => {
     setIsRerouting(true);
     setTimeout(() => {
       setPasses((prev) =>
@@ -139,7 +139,7 @@ export const GuestParking: React.FC<GuestParkingProps> = ({ currentLang = 'en' }
                     </span>
 
                     <button
-                      onClick={() => handleSimulateReroute(pass.id)}
+                      onClick={() => handleTriggerReroute(pass.id)}
                       disabled={isRerouting}
                       className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-400 font-semibold border border-amber-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >

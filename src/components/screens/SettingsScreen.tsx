@@ -114,13 +114,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     fetchSettings().then((backendSettings) => {
       if (backendSettings) {
         if (backendSettings.accountProfile) {
-          setResidentName(backendSettings.accountProfile.residentName || residentName);
-          setFlatNumber(backendSettings.accountProfile.flatNumber || flatNumber);
-          setEmergencyContact(backendSettings.accountProfile.emergencyContact || emergencyContact);
+          if (backendSettings.accountProfile.residentName) setResidentName(backendSettings.accountProfile.residentName);
+          if (backendSettings.accountProfile.flatNumber) setFlatNumber(backendSettings.accountProfile.flatNumber);
+          if (backendSettings.accountProfile.emergencyContact) setEmergencyContact(backendSettings.accountProfile.emergencyContact);
           if (backendSettings.accountProfile.familyMembers) setFamilyMembers(backendSettings.accountProfile.familyMembers);
           if (backendSettings.accountProfile.registeredVehicles) setRegisteredVehicles(backendSettings.accountProfile.registeredVehicles);
           if (backendSettings.accountProfile.digitalPasskeys) {
-            setRfidCardId(backendSettings.accountProfile.digitalPasskeys.rfidCardId || rfidCardId);
+            if (backendSettings.accountProfile.digitalPasskeys.rfidCardId) setRfidCardId(backendSettings.accountProfile.digitalPasskeys.rfidCardId);
             setBiometricPassEnabled(backendSettings.accountProfile.digitalPasskeys.biometricPassEnabled ?? true);
             setMobileNfcKeyEnabled(backendSettings.accountProfile.digitalPasskeys.mobileNfcKeyEnabled ?? true);
           }
@@ -152,8 +152,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           if (backendSettings.visitorSecurityRules.blacklistedVisitors) setBlacklistedVisitors(backendSettings.visitorSecurityRules.blacklistedVisitors);
         }
         if (backendSettings.walletSharing) {
-          setBankPayoutAccount(backendSettings.walletSharing.bankPayoutAccount || bankPayoutAccount);
-          setResourceSharingWindow(backendSettings.walletSharing.resourceSharingAvailabilityWindow || resourceSharingWindow);
+          if (backendSettings.walletSharing.bankPayoutAccount) setBankPayoutAccount(backendSettings.walletSharing.bankPayoutAccount);
+          if (backendSettings.walletSharing.resourceSharingAvailabilityWindow) setResourceSharingWindow(backendSettings.walletSharing.resourceSharingAvailabilityWindow);
           setToolDepositLimitPCoins(backendSettings.walletSharing.toolSecurityDepositLimitPCoins || 100);
           setTrustScorePrivateMode(backendSettings.walletSharing.trustScorePrivateMode ?? true);
         }

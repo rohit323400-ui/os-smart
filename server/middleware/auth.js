@@ -87,7 +87,7 @@ export async function authenticateToken(req, res, next) {
         });
       }
       req.user = users[0];
-    } catch (dbErr) {
+    } catch {
       if (decoded.is_verified === 0 || decoded.is_verified === false) {
         return res.status(403).json({
           success: false,
@@ -98,7 +98,7 @@ export async function authenticateToken(req, res, next) {
     }
 
     next();
-  } catch (err) {
+  } catch {
     return res.status(403).json({
       success: false,
       error: 'Invalid or expired authentication token. Please log in again.'

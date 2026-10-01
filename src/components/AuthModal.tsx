@@ -141,10 +141,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       const res = await forgotPassword(email);
       if (res && res.success) {
-        setSuccessMsg(res.message || 'OTP code sent to your email.');
-        if (res.simulatedOtp) {
-          setOtp(res.simulatedOtp);
-        }
+        setSuccessMsg(res.message || 'OTP code sent to your registered contact.');
         setMode('reset');
       } else {
         setError(res?.message || 'Email not found in registry.');
@@ -533,22 +530,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 transition-all"
                   />
                 </div>
-              </div>
-
-              {/* Instant Test OTP Generator */}
-              <div className="p-3 bg-slate-950 border border-cyan-500/30 rounded-xl flex items-center justify-between text-xs">
-                <span className="text-slate-300">Test OTP Code: <strong className="text-cyan-400 font-mono text-sm ml-1">{otp || '849201'}</strong></span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const generated = Math.floor(100000 + Math.random() * 900000).toString();
-                    setOtp(generated);
-                    setSuccessMsg(`Simulated OTP code generated: ${generated}`);
-                  }}
-                  className="px-2.5 py-1 bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded-lg font-bold hover:bg-cyan-500/30 transition-all cursor-pointer"
-                >
-                  Generate Test OTP
-                </button>
               </div>
 
               <button
