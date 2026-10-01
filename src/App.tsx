@@ -41,10 +41,6 @@ import {
 } from './services/api';
 
 import {
-  initialWaterData,
-  initialFireData,
-  initialLiftStatus,
-  initialNoiseData,
   emptyWaterData,
   emptyFireData,
   emptyLiftStatus,
@@ -217,12 +213,10 @@ function normalizeActionLogs(data: any[]): ActionLogItem[] {
 
 export function App() {
   const [activeTab, setActiveTab] = useState<ModuleTab>('home');
-  const [activeScenario, setActiveScenario] = useState<'NORMAL' | 'FIRE' | 'WATER' | 'LIFT' | 'NOISE'>('NORMAL');
   const [userRole, setUserRole] = useState<'Resident' | 'Facility Admin' | 'Security Guard' | 'Maintenance Tech'>('Resident');
   const [isNotifOpen, setIsNotifOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [currentLang, setCurrentLang] = useState<string>('en');
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(() => {
     return !!(localStorage.getItem('society_token') || sessionStorage.getItem('society_token'));
   });
@@ -370,70 +364,21 @@ export function App() {
     return () => unsubscribe();
   }, []);
 
-  // Calculate Overall System State
+  // Calculate Overall System State (Derived 100% from Live Database & IoT Telemetry)
   let systemState: 'STABLE' | 'ATTENTION' | 'EMERGENCY' = 'STABLE';
-  if (activeScenario === 'FIRE' || activeScenario === 'WATER' || activeScenario === 'LIFT' || fireData.isActive || liftStatus.status === 'TRAPPED_EMERGENCY' || waterData.leakageDetected) {
+  if (fireData.isActive || liftStatus.status === 'TRAPPED_EMERGENCY' || waterData.leakageDetected) {
     systemState = 'EMERGENCY';
-  } else if (activeScenario === 'NOISE' || visitorRequests.some((r) => r.status === 'pending') || noiseData.currentViolationStage > 0) {
+  } else if (visitorRequests.some((r) => r.status === 'pending') || noiseData.currentViolationStage > 0) {
     systemState = 'ATTENTION';
   }
 
-  // 🧪 Explicit Scenario / Simulation Mode Handlers
-  // 🛡️ CRITICAL SAFETY RULE: Simulation mode NEVER triggers real physical devices, sirens, SMS, or external dispatches.
-  const handleSelectScenario = (scenario: 'NORMAL' | 'FIRE' | 'WATER' | 'LIFT' | 'NOISE') => {
-    setActiveScenario(scenario);
-    if (scenario === 'FIRE') {
-      setIsDemoMode(true);
-      // Sandbox preview only: NEVER dispatch real fire emergency to backend!
-      setFireData(initialFireData);
-      setActiveTab('fire');
-    } else if (scenario === 'WATER') {
-      setIsDemoMode(true);
-      // Sandbox preview only: NEVER dispatch real valve commands
-      setWaterData({ ...initialWaterData, leakageDetected: true });
-      setActiveTab('water-leakage');
-    } else if (scenario === 'LIFT') {
-      setIsDemoMode(true);
-      // Sandbox preview only: NEVER dispatch real lift emergency technicians
-      setLiftStatus(initialLiftStatus);
-      setActiveTab('lift');
-    } else if (scenario === 'NOISE') {
-      setIsDemoMode(true);
-      // Sandbox preview only: NEVER dispatch real noise escalation
-      setNoiseData(initialNoiseData);
-      setActiveTab('noise');
-    } else {
-      // Revert from simulation back to live production data
-      setIsDemoMode(false);
-      setActiveTab('home');
-
-      // Refresh live state directly from MySQL backend
-      fetchFullSync().then((data) => {
-        if (data) {
-          applyBackendSyncData(data);
-        } else {
-          setWaterData(emptyWaterData);
-          setFireData(emptyFireData);
-          setLiftStatus(emptyLiftStatus);
-          setNoiseData(emptyNoiseData);
-        }
-      });
-    }
-  };
-
   // 🚰 Physical Water Valve Action (Strict Command vs Device Telemetry Pattern)
   const handleToggleValve = async () => {
-    // 🛡️ In simulation mode, only toggle the sandbox UI state without real IoT actuation
-    if (isDemoMode) {
-      setWaterData((prev) => ({ ...prev, valveClosed: !prev.valveClosed }));
-      return;
-    }
-
     const nextState = !waterData.valveClosed;
     setValveStatus('PENDING');
 
     try {
-      const res = await sendValveCommand(nextState, false);
+      const res = await sendValveCommand(nextState);
 
       if (!res || !res.success) {
         // 🛡️ CRITICAL RULE: NEVER update physical valve UI state locally when the API command fails!
@@ -519,9 +464,7 @@ export function App() {
       {/* Header Bar */}
       <Header
         systemState={systemState}
-        activeScenario={activeScenario}
         userRole={userRole}
-        onSelectScenario={handleSelectScenario}
         onSelectRole={setUserRole}
         onOpenNotifications={() => setIsNotifOpen(true)}
         notificationCount={3}
@@ -550,12 +493,12 @@ export function App() {
       {/* Main View Area rendering all 18 feature modules */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 pt-6">
         {/* Production Mode & Auth Stream Banner */}
-        {!currentUser && !isDemoMode && (
+        {!currentUser && (
           <div className="bg-slate-900/90 border border-cyan-500/30 rounded-xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg backdrop-blur-md">
             <div className="flex items-center gap-3 text-xs text-slate-300">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
               <span>
-                <strong className="text-white">Production Operational Mode:</strong> Zero mock data loaded. Sign in to access your flat's authenticated telemetry & controls, or select a scenario above for simulation mode.
+                <strong className="text-white">Production Operational Mode:</strong> Zero mock data loaded. Sign in to access your flat's authenticated telemetry & live community controls.
               </span>
             </div>
             <button
@@ -584,7 +527,6 @@ export function App() {
             maintenanceTickets={maintenanceTickets}
             isBackendConnected={isBackendConnected}
             onNavigateTab={setActiveTab}
-            activeScenario={activeScenario}
             userRole={userRole}
             currentLang={currentLang}
           />

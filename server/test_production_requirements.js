@@ -1,7 +1,13 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { query } from './db.js';
 import { sendSmsNotification, sendEmailNotification } from './services/notifier.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function runTests() {
   console.log('🧪 Starting Production Requirements Verification Suite...\n');
@@ -147,6 +153,45 @@ async function runTests() {
 
     // Clean up
     await query('DELETE FROM device_commands WHERE id = ?', [commandId]);
+
+    // -------------------------------------------------------------
+    // Test 6: Real-Only Production Cleanup Verification
+    // -------------------------------------------------------------
+    console.log('\n6️⃣ Testing Real-Only Production Cleanup:');
+    const serverDir = __dirname;
+
+    // Check data.json does NOT exist
+    const dataJsonExists = fs.existsSync(path.join(serverDir, 'data.json'));
+    assert(!dataJsonExists, 'server/data.json file is completely removed (MySQL is sole source of truth)');
+
+    // Check server.js has zero DEMO_SIMULATION_FIXTURES
+    const serverCode = fs.readFileSync(path.join(serverDir, 'server.js'), 'utf8');
+    assert(!serverCode.includes('DEMO_SIMULATION_FIXTURES'), 'server.js has zero DEMO_SIMULATION_FIXTURES');
+    assert(!serverCode.includes('isSimulation'), 'server.js operational endpoints have zero isSimulation bypasses');
+
+    // Check deployment configs exist
+    const nginxConfExists = fs.existsSync(path.join(serverDir, '..', 'deploy', 'nginx.conf'));
+    const caddyfileExists = fs.existsSync(path.join(serverDir, '..', 'deploy', 'Caddyfile'));
+    assert(nginxConfExists && caddyfileExists, 'Reverse proxy configurations (deploy/nginx.conf & deploy/Caddyfile) exist');
+
+    // Check MySQL hardware states
+    const waterRows = await query('SELECT pump_operational_state, overhead_tank, underground_sump FROM water_metrics WHERE id = 1');
+    assert(
+      waterRows.length > 0 && waterRows[0].pump_operational_state === 'NOT_CONNECTED' && waterRows[0].overhead_tank === 0,
+      'water_metrics defaults to NOT_CONNECTED / zero telemetry when hardware offline'
+    );
+
+    const fireRows = await query('SELECT smoke_sensors_active, is_alarm_active FROM fire_emergency WHERE id = 1');
+    assert(
+      fireRows.length > 0 && fireRows[0].smoke_sensors_active === 0 && fireRows[0].is_alarm_active === 0,
+      'fire_emergency defaults to 0 smoke sensors active when hardware offline'
+    );
+
+    const noiseRows = await query('SELECT current_decibels, target_unit FROM noise_data WHERE id = 1');
+    assert(
+      noiseRows.length > 0 && noiseRows[0].current_decibels === 0 && noiseRows[0].target_unit === null,
+      'noise_data defaults to 0 decibels / NULL target unit when hardware offline'
+    );
 
     console.log(`\n=================================================`);
     console.log(`🎉 TEST SUMMARY: ${testsPassed} passed, ${testsFailed} failed.`);

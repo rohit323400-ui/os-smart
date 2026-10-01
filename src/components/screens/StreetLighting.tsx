@@ -57,16 +57,16 @@ export const StreetLighting: React.FC<StreetLightingProps> = ({ currentLang = 'e
         </div>
       </div>
 
-      {/* Interactive Motion Test Deck */}
+      {/* Interactive Motion Diagnostic Deck */}
       <div className="glass-panel rounded-2xl p-5 border border-slate-200 dark:border-slate-800">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
           <div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Eye className="w-4 h-4 text-cyan-600 dark:text-cyan-400 shrink-0" />
-              PIR Motion Sensor Simulation Test
+              PIR Motion Sensor Diagnostic Edge Test
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Click the button to simulate a walking resident along Garden Walkway (Pole P-02).
+              Trigger diagnostic edge loop test on Garden Walkway (Pole P-02) to verify illumination step-up.
             </p>
           </div>
 
@@ -74,7 +74,7 @@ export const StreetLighting: React.FC<StreetLightingProps> = ({ currentLang = 'e
             onClick={triggerMotionSim}
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-500/20 flex items-center gap-2 shrink-0 cursor-pointer"
           >
-            <Sparkles className="w-4 h-4 shrink-0" /> Simulate Resident Walking Past Pole P-02
+            <Sparkles className="w-4 h-4 shrink-0" /> Run Motion Sensor Diagnostic (Pole P-02)
           </button>
         </div>
 

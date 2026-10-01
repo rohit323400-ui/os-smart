@@ -24,7 +24,6 @@ interface HomeDashboardProps {
   maintenanceTickets?: MaintenanceTicket[];
   isBackendConnected?: boolean;
   onNavigateTab: (tab: any) => void;
-  activeScenario: string;
   userRole?: string;
   currentLang?: string;
 }
@@ -38,7 +37,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   maintenanceTickets = [],
   isBackendConnected = false,
   onNavigateTab,
-  activeScenario,
   userRole,
   currentLang
 }) => {
@@ -46,6 +44,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const sharedSlotsCount = parkingSlots.filter((s) => s.status === 'shared').length;
   const pendingVisitors = visitorRequests.filter((v) => v.status === 'pending');
   const activeTickets = maintenanceTickets.filter((t) => t.status !== 'Resolved');
+
+  const hasCriticalEmergency = fireData.isActive || liftStatus.status === 'TRAPPED_EMERGENCY' || waterData.leakageDetected;
+  const hasActionPending = pendingVisitors.length > 0 || activeTickets.length > 0;
 
   return (
     <div className="space-y-6 pb-12">
@@ -67,33 +68,41 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </p>
           </div>
 
-          {/* AI Status Header Badge */}
+          {/* Real Operational Status Header Badge */}
           <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-700/60 rounded-xl p-3 shadow-lg">
             <div className="relative">
-              {activeScenario === 'NORMAL' ? (
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                  <CheckCircle2 className="w-6 h-6" />
+              {hasCriticalEmergency ? (
+                <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 animate-bounce">
+                  <AlertTriangle className="w-6 h-6" />
                 </div>
-              ) : (
+              ) : hasActionPending ? (
                 <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 animate-pulse">
                   <AlertTriangle className="w-6 h-6" />
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <CheckCircle2 className="w-6 h-6" />
                 </div>
               )}
             </div>
 
             <div>
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">AI Operational State</div>
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Operational State</div>
               <div className="text-base font-extrabold text-white flex items-center gap-2">
-                {activeScenario === 'NORMAL' ? (
-                  <span className="text-emerald-400">COMMUNITY STABLE</span>
-                ) : (
+                {hasCriticalEmergency ? (
+                  <span className="text-red-400">CRITICAL ALERT</span>
+                ) : hasActionPending ? (
                   <span className="text-amber-400">ATTENTION REQUIRED</span>
+                ) : (
+                  <span className="text-emerald-400">COMMUNITY STABLE</span>
                 )}
               </div>
               <p className="text-[11px] text-slate-400">
-                {activeScenario === 'NORMAL'
-                  ? (isBackendConnected ? 'All live subsystems functioning within normal parameters.' : 'Standing by for live telemetry stream from IoT Gateway.')
-                  : '1 Critical priority incident staged for human verification.'}
+                {hasCriticalEmergency
+                  ? 'Urgent emergency event active. Emergency services / team alerted.'
+                  : hasActionPending
+                  ? `${pendingVisitors.length} visitor(s) pending, ${activeTickets.length} open maintenance ticket(s).`
+                  : (isBackendConnected ? 'All live subsystems functioning within normal parameters.' : 'Standing by for live telemetry stream from IoT Gateway.')}
               </p>
             </div>
           </div>

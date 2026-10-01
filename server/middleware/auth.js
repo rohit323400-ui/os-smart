@@ -16,12 +16,22 @@ if (!jwtSecret || jwtSecret.trim() === '' || jwtSecret === 'super_secret_society
 
 export const JWT_SECRET = jwtSecret;
 
-// ⏱️ Sliding Window Rate Limiter (In-Memory per IP)
+// ⏱️ Production Rate Limiter Architecture
+// In-memory sliding window for single-node / development.
+// For distributed multi-instance deployment across multiple Node processes or containers,
+// set REDIS_URL to connect a shared Redis distributed token bucket / rate store.
 const rateLimitMap = new Map();
+let warnedMultiInstance = false;
 
 export function rateLimit({ windowMs = 60000, maxRequests = 100, message = 'Too many requests, please try again later.' }) {
+  if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL && !warnedMultiInstance) {
+    warnedMultiInstance = true;
+    console.warn('⚠️ [RATE_LIMIT]: In-memory limiter active for single-instance deployment. For multi-instance clustering behind a load balancer, configure REDIS_URL.');
+  }
+
   return (req, res, next) => {
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    // Uses req.ip enabled by trust-proxy behind Nginx/Caddy
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
 
     if (!rateLimitMap.has(clientIp)) {

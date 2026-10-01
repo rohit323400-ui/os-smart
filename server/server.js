@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
-import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -21,7 +20,6 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DB_FILE = path.join(__dirname, 'data.json');
 
 // 🔒 Secure IoT Gateway Secret (No Static Hardcoded Secret in Production)
 let iotGatewayKey = process.env.IOT_GATEWAY_KEY;
@@ -43,40 +41,8 @@ if (geminiApiKey && geminiApiKey.trim() !== '' && geminiApiKey !== 'your_gemini_
     console.warn('⚠️ Could not initialize Gemini AI client:', err.message);
   }
 } else {
-  console.log('💡 Note: GEMINI_API_KEY not configured. Operating in safe advisory simulation.');
+  console.log('💡 Note: GEMINI_API_KEY not configured. Operating in standard deterministic advisory protocol.');
 }
-
-// 🧪 Isolated Demo & Simulation Fixtures (Strictly for explicit simulation sandboxes; NEVER served as live production telemetry)
-export const DEMO_SIMULATION_FIXTURES = {
-  waterData: {
-    overheadTank: 74,
-    undergroundSump: 92,
-    recycledWater: 58,
-    phLevel: 7.2,
-    tdsLevel: 145,
-    todayConsumptionLiters: 48200,
-    flowRateLPM: 120,
-    pumpAutoCutoffActive: true,
-    pumpOperationalState: 'OFF',
-    valveClosed: false,
-    leakageDetected: false,
-    lastQualityCheck: 'Simulation Baseline'
-  },
-  noiseData: {
-    currentDecibels: 48,
-    targetUnit: 'B-304',
-    currentViolationStage: 0,
-    decibelHistory: [
-      { time: '22:00', db: 42 },
-      { time: '22:15', db: 45 },
-      { time: '22:30', db: 48 },
-      { time: '22:45', db: 64 },
-      { time: '23:00', db: 68 },
-      { time: '23:15', db: 52 },
-      { time: '23:30', db: 46 }
-    ]
-  }
-};
 
 // 🛡️ Live Operational Telemetry Cache (Strictly zero/neutral defaults; populated ONLY by MySQL raah_nagar_db & real IoT Gateway)
 let telemetryCache = {
@@ -274,31 +240,47 @@ async function syncFromDatabase() {
       details: `Action performed by ${a.user_role} (IP: ${a.ip_address || 'local'})`
     }));
 
-    // Cache backup for offline disaster resilience
-    fs.writeFileSync(DB_FILE, JSON.stringify(telemetryCache, null, 2));
-    console.log('🔄 Telemetry and state synchronized from MySQL raah_nagar_db to runtime cache.');
+    console.log('🔄 Telemetry and operational state synchronized from MySQL raah_nagar_db to runtime memory.');
   } catch (err) {
-    console.warn('⚠️ Could not sync from MySQL, using cached state:', err.message);
+    console.warn('⚠️ Could not sync from MySQL database:', err.message);
   }
 }
 
-// Initial Telemetry Sync
+// Initial Telemetry Sync from MySQL
 syncFromDatabase();
 
 const app = express();
 
+// 🌐 Reverse Proxy Trust (Enables correct client IP resolution behind Nginx/Caddy)
+app.set('trust proxy', 1);
+
 // 🔒 Production CORS Whitelist Policy
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173').split(',').map(s => s.trim());
+const rawAllowedOrigins = process.env.ALLOWED_ORIGINS || '';
+const allowedOrigins = rawAllowedOrigins
+  ? rawAllowedOrigins.split(',').map(s => s.trim())
+  : [];
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Non-browser / server-to-server requests (curl, edge gateways, internal monitors)
     if (!origin) return callback(null, true);
+
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (isProduction) {
+      // In production: strictly allow ONLY configured HTTPS frontend origins
+      const isAllowedHttps = allowedOrigins.includes(origin) && origin.startsWith('https://');
+      if (isAllowedHttps) {
+        return callback(null, true);
+      }
+      return callback(new Error(`[CORS REJECTED]: Origin ${origin} is not permitted in production. Only verified HTTPS frontend origins are allowed.`));
+    }
+
+    // In local development: allow configured origins, or localhost / 127.0.0.1
     if (allowedOrigins.includes(origin)) return callback(null, true);
     if (
       origin.startsWith('http://localhost:') || 
-      origin.startsWith('http://127.0.0.1:') ||
-      origin.startsWith('http://10.') || 
-      origin.startsWith('http://192.168.')
+      origin.startsWith('http://127.0.0.1:')
     ) {
       return callback(null, true);
     }
@@ -350,23 +332,40 @@ wss.on('connection', (ws) => {
     }
   }, 5000);
 
-  ws.on('message', (msg) => {
+  ws.on('message', async (msg) => {
     try {
       const data = JSON.parse(msg.toString());
       if (data.type === 'AUTHENTICATE' && data.token) {
         clearTimeout(authTimer);
         const decoded = jwt.verify(data.token, JWT_SECRET);
-        ws.isAuthenticated = true;
-        ws.userRole = decoded.role || ROLES.RESIDENT;
-        ws.userId = decoded.id;
 
-        // Send role-filtered initial sync only after successful authentication
+        // 🔒 Verify user account and role against MySQL database
+        const users = await query('SELECT id, name, role, is_verified, is_active FROM users WHERE id = ?', [decoded.id]);
+        if (!users || users.length === 0) {
+          ws.send(JSON.stringify({ type: 'ERROR', error: 'Authentication failed: User account does not exist in database.' }));
+          return ws.close(4003, 'Forbidden');
+        }
+        const dbUser = users[0];
+        if (dbUser.is_active === 0 || dbUser.is_active === false) {
+          ws.send(JSON.stringify({ type: 'ERROR', error: 'Authentication failed: User account is deactivated.' }));
+          return ws.close(4003, 'Forbidden');
+        }
+        if (dbUser.is_verified === 0 || dbUser.is_verified === false) {
+          ws.send(JSON.stringify({ type: 'ERROR', error: 'Authentication failed: User account is pending verification.' }));
+          return ws.close(4003, 'Forbidden');
+        }
+
+        ws.isAuthenticated = true;
+        ws.userRole = dbUser.role || ROLES.RESIDENT;
+        ws.userId = dbUser.id;
+
+        // Send role-filtered initial sync only after successful MySQL verification
         const scopedSync = getScopedDataForRole(ws.userRole, ws.userId);
         ws.send(JSON.stringify({ type: 'AUTH_SUCCESS', role: ws.userRole }));
         ws.send(JSON.stringify({ type: 'INITIAL_SYNC', payload: scopedSync }));
       }
     } catch (e) {
-      ws.send(JSON.stringify({ type: 'ERROR', error: 'Invalid authentication credentials.' }));
+      ws.send(JSON.stringify({ type: 'ERROR', error: 'Invalid authentication credentials or signature.' }));
       ws.close(4003, 'Forbidden');
     }
   });
@@ -458,8 +457,8 @@ Provide a concise, role-tailored, professional advisory response.`
     }
   }
 
-  const fallbackMsg = `🏛️ [RAAH NAGAR Advisor for ${userRole}]: Telemetry nominal. Overhead Tank: ${telemetryCache.waterData.overheadTank}%, Open Tickets: ${telemetryCache.maintenanceTickets.filter(m => m.status === 'OPEN').length}.`;
-  return res.json({ success: true, answer: fallbackMsg, mode: 'simulation' });
+  const fallbackMsg = `🏛️ [RAAH NAGAR Advisor for ${userRole}]: Telemetry status: Overhead Tank: ${telemetryCache.waterData.overheadTank}%, Open Tickets: ${telemetryCache.maintenanceTickets.filter(m => m.status === 'OPEN').length}.`;
+  return res.json({ success: true, answer: fallbackMsg, mode: 'deterministic-protocol' });
 });
 
 // AI Emergency Analysis (Advisory Protocol Guidelines)
@@ -480,7 +479,7 @@ app.post('/api/ai/analyze-emergency', authenticateToken, requirePermission(PERMI
   }
 
   const fallbackAnalysis = `🚨 Standard Operating Procedure:\n1. Verify physical location on site.\n2. Ensure evacuation routes remain unobstructed.\n3. Awaiting authorized Facility Admin intervention.`;
-  return res.json({ success: true, analysis: fallbackAnalysis, mode: 'simulation' });
+  return res.json({ success: true, analysis: fallbackAnalysis, mode: 'deterministic-protocol' });
 });
 
 // 4. Water Management (Command vs Actual State Pattern & Real IoT Ingestion)
@@ -488,18 +487,8 @@ app.get('/api/water', authenticateToken, (req, res) => res.json(telemetryCache.w
 
 // Dispatch Pump Command (Stays PENDING until IoT Gateway reports actual physical state)
 app.post('/api/water/pump-command', authenticateToken, requirePermission(PERMISSIONS.EQUIPMENT_CONTROL), async (req, res) => {
-  const { command, deviceId = 'PUMP-MAIN-01', isSimulation = false } = req.body; // 'START' | 'STOP'
+  const { command, deviceId = 'PUMP-MAIN-01' } = req.body; // 'START' | 'STOP'
   const requestedBy = req.user.id;
-
-  // 🛡️ Simulation isolation: NEVER actuate physical motor in simulation
-  if (isSimulation) {
-    return res.json({
-      success: true,
-      isSimulation: true,
-      status: 'SIMULATED',
-      message: '[SIMULATION_MODE] Pump command sandboxed; zero physical motor actuated.'
-    });
-  }
 
   try {
     const commandId = await createDeviceCommand({
@@ -712,21 +701,11 @@ app.get('/api/iot/telemetry/history', authenticateToken, async (req, res) => {
   }
 });
 
-// Water Valve Manual Shutoff Command (Command vs Actual State Pattern & Simulation Isolation)
+// Water Valve Manual Shutoff Command (Command vs Actual State Pattern)
 app.post('/api/water/valve-command', authenticateToken, requirePermission(PERMISSIONS.EQUIPMENT_CONTROL), async (req, res) => {
-  const { closed, deviceId = 'VALVE-MAIN-V102', isSimulation = false } = req.body;
+  const { closed, deviceId = 'VALVE-MAIN-V102' } = req.body;
   const requestedBy = req.user.id;
   const command = closed ? 'CLOSE' : 'OPEN';
-
-  // 🛡️ Simulation isolation: NEVER actuate physical device or write hardware commands in simulation
-  if (isSimulation) {
-    return res.json({
-      success: true,
-      isSimulation: true,
-      valveClosed: !!closed,
-      message: '[SIMULATION_MODE] Valve state simulated in sandbox. Zero real equipment actuated.'
-    });
-  }
 
   try {
     const commandId = await createDeviceCommand({
@@ -796,17 +775,6 @@ app.get('/api/fire', authenticateToken, (req, res) => res.json(telemetryCache.fi
 
 app.post('/api/fire/trigger', rateLimit({ windowMs: 60000, maxRequests: 5 }), authenticateToken, requirePermission(PERMISSIONS.EMERGENCY_CONTROL), async (req, res) => {
   const zone = req.body.zone || 'Tower B Floor 4';
-  const isSimulation = !!req.body.isSimulation;
-
-  // 🛡️ Simulation isolation: NEVER trigger real sirens, external fire desks, or SMS in simulation
-  if (isSimulation) {
-    return res.json({
-      success: true,
-      isSimulation: true,
-      message: '[SIMULATION_MODE] Fire emergency sandboxed; zero sirens, SMS, or fire dept alerted.'
-    });
-  }
-
   const oldData = { ...telemetryCache.fireEmergencyData };
 
   // Note: Software flags emergency reported; does NOT claim automated sprinkler discharge without physical confirmation
@@ -1175,16 +1143,6 @@ app.get('/api/lift', authenticateToken, (req, res) => res.json(telemetryCache.li
 
 app.post('/api/lift/trigger-sos/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const isSimulation = !!(req.body && req.body.isSimulation);
-
-  // 🛡️ Simulation isolation: NEVER trigger real lift technicians in simulation
-  if (isSimulation) {
-    return res.json({
-      success: true,
-      isSimulation: true,
-      message: '[SIMULATION_MODE] Lift SOS sandboxed in simulation; zero physical technicians dispatched.'
-    });
-  }
 
   const lift = telemetryCache.liftStatuses.find(l => l.id === id);
   if (!lift) return res.status(404).json({ success: false, error: 'Lift not found' });

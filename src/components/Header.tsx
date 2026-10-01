@@ -1,11 +1,6 @@
 import React from 'react';
 import {
-  Flame,
-  Droplets,
   UserCheck,
-  CheckCircle2,
-  AlertTriangle,
-  Sliders,
   Bell,
   User,
   Sun,
@@ -19,9 +14,7 @@ import { SUPPORTED_LANGUAGES, getTranslation } from '../utils/i18n';
 
 interface HeaderProps {
   systemState: 'STABLE' | 'ATTENTION' | 'EMERGENCY';
-  activeScenario: 'NORMAL' | 'FIRE' | 'WATER' | 'LIFT' | 'NOISE';
   userRole: 'Resident' | 'Facility Admin' | 'Security Guard' | 'Maintenance Tech';
-  onSelectScenario: (scenario: 'NORMAL' | 'FIRE' | 'WATER' | 'LIFT' | 'NOISE') => void;
   onSelectRole: (role: 'Resident' | 'Facility Admin' | 'Security Guard' | 'Maintenance Tech') => void;
   onOpenNotifications: () => void;
   notificationCount: number;
@@ -38,9 +31,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   systemState,
-  activeScenario,
   userRole,
-  onSelectScenario,
   onSelectRole,
   onOpenNotifications,
   notificationCount,
@@ -83,56 +74,32 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Middle: Live Simulation Switcher Bar (Fully Scrollable on Mobile) */}
-        <div className="flex items-center gap-2 overflow-x-auto w-full lg:w-auto py-1 px-2 rounded-xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs scrollbar-none flex-nowrap shrink-0">
-          <span className="text-slate-500 dark:text-slate-400 font-semibold px-1 flex items-center gap-1 shrink-0 whitespace-nowrap">
-            <Sliders className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
-            {getTranslation(currentLang, 'simulate')}
-          </span>
-          <button
-            onClick={() => onSelectScenario('NORMAL')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all shrink-0 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              activeScenario === 'NORMAL'
-                ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            {getTranslation(currentLang, 'normalMode')}
-          </button>
-          <button
-            onClick={() => onSelectScenario('WATER')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all shrink-0 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              activeScenario === 'WATER'
-                ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/40 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Droplets className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
-            {getTranslation(currentLang, 'waterSurge')}
-          </button>
-          <button
-            onClick={() => onSelectScenario('FIRE')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all shrink-0 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              activeScenario === 'FIRE'
-                ? 'bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/40 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5 text-red-600 dark:text-red-400 animate-bounce shrink-0" />
-            {getTranslation(currentLang, 'fireEmergency')}
-          </button>
-          <button
-            onClick={() => onSelectScenario('LIFT')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all shrink-0 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              activeScenario === 'LIFT'
-                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800/50'
-            }`}
-          >
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-            {getTranslation(currentLang, 'liftEmergency')}
-          </button>
+        {/* Middle: Real-Time Operational Infrastructure Health Display */}
+        <div className="flex items-center gap-2.5 py-1.5 px-3.5 rounded-xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs shrink-0">
+          <div className="flex items-center gap-2">
+            {systemState === 'STABLE' && (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-bold text-emerald-700 dark:text-emerald-400">COMMUNITY OS NOMINAL</span>
+                <span className="text-slate-400 dark:text-slate-500">•</span>
+                <span className="text-slate-600 dark:text-slate-400 hidden sm:inline">All Hardware Subsystems Secured</span>
+              </>
+            )}
+            {systemState === 'ATTENTION' && (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="font-bold text-amber-700 dark:text-amber-400">ACTION PENDING</span>
+                <span className="text-slate-400 dark:text-slate-500">•</span>
+                <span className="text-slate-600 dark:text-slate-400 hidden sm:inline">Operator Verification Required</span>
+              </>
+            )}
+            {systemState === 'EMERGENCY' && (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                <span className="font-bold text-red-600 dark:text-red-400">CRITICAL EMERGENCY REPORTED</span>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Right: Controls, User Account & Settings (Fully Scrollable on Mobile) */}

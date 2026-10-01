@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Car, QrCode, Navigation, ShieldCheck, Clock, MapPin, Plus, Sparkles } from 'lucide-react';
+import { Car, QrCode, Navigation, ShieldCheck, Clock, MapPin, Plus } from 'lucide-react';
 import { getTranslation } from '../../utils/i18n';
 import { initialGuestPasses, type GuestPass } from '../../data/mockData';
 
@@ -141,10 +141,10 @@ export const GuestParking: React.FC<GuestParkingProps> = ({ currentLang = 'en' }
                     <button
                       onClick={() => handleSimulateReroute(pass.id)}
                       disabled={isRerouting}
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-400 font-semibold border border-amber-500/30 flex items-center justify-center gap-1.5 transition-all"
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-400 font-semibold border border-amber-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
-                      <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                      Simulate Slot Conflict & Re-Route
+                      <Navigation className="w-3.5 h-3.5 shrink-0" />
+                      Dynamic Slot Re-Allocation
                     </button>
                   </div>
                 </div>

@@ -31,15 +31,16 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- 2. Water Operations Table
 CREATE TABLE IF NOT EXISTS `water_metrics` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `overhead_tank` INT NOT NULL DEFAULT 74,
-  `underground_sump` INT NOT NULL DEFAULT 92,
-  `recycled_water` INT NOT NULL DEFAULT 58,
-  `ph_level` DECIMAL(3,1) NOT NULL DEFAULT 7.2,
-  `tds_level` INT NOT NULL DEFAULT 145,
-  `today_consumption_liters` INT NOT NULL DEFAULT 48200,
-  `flow_rate_lpm` INT NOT NULL DEFAULT 120,
-  `pump_cutoff_active` TINYINT(1) NOT NULL DEFAULT 1,
-  `last_quality_check` VARCHAR(100) DEFAULT 'Today, 08:30 AM',
+  `overhead_tank` INT NOT NULL DEFAULT 0,
+  `underground_sump` INT NOT NULL DEFAULT 0,
+  `recycled_water` INT NOT NULL DEFAULT 0,
+  `ph_level` DECIMAL(3,1) NOT NULL DEFAULT 0.0,
+  `tds_level` INT NOT NULL DEFAULT 0,
+  `today_consumption_liters` INT NOT NULL DEFAULT 0,
+  `flow_rate_lpm` INT NOT NULL DEFAULT 0,
+  `pump_cutoff_active` TINYINT(1) NOT NULL DEFAULT 0,
+  `pump_operational_state` VARCHAR(50) NOT NULL DEFAULT 'NOT_CONNECTED',
+  `last_quality_check` VARCHAR(100) DEFAULT 'Awaiting Hardware Telemetry',
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -60,7 +61,7 @@ CREATE TABLE IF NOT EXISTS `fire_emergency` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `is_alarm_active` TINYINT(1) NOT NULL DEFAULT 0,
   `affected_zone` VARCHAR(100) DEFAULT 'None',
-  `smoke_sensors_active` INT DEFAULT 48,
+  `smoke_sensors_active` INT DEFAULT 0,
   `sprinklers_status` VARCHAR(50) DEFAULT 'STANDBY',
   `fire_dept_notified` TINYINT(1) DEFAULT 0,
   `evacuation_route_open` TINYINT(1) DEFAULT 1,
@@ -103,7 +104,7 @@ CREATE TABLE IF NOT EXISTS `lift_statuses` (
   `lift_name` VARCHAR(100) NOT NULL,
   `floor` INT DEFAULT 0,
   `status` ENUM('NORMAL', 'SOS_TRIGGERED', 'TRAPPED_EMERGENCY', 'UNDER_MAINTENANCE') DEFAULT 'NORMAL',
-  `ard_battery_percent` INT DEFAULT 100,
+  `ard_battery_percent` INT DEFAULT 0,
   `last_serviced` DATE DEFAULT (CURRENT_DATE),
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -113,8 +114,8 @@ CREATE TABLE IF NOT EXISTS `waste_bins` (
   `id` VARCHAR(64) PRIMARY KEY,
   `bin_type` VARCHAR(100) NOT NULL,
   `fill_percentage` INT NOT NULL DEFAULT 0,
-  `odor_score_level` INT DEFAULT 1,
-  `last_emptied` VARCHAR(100) DEFAULT 'Today',
+  `odor_score_level` INT DEFAULT 0,
+  `last_emptied` VARCHAR(100) DEFAULT 'Awaiting Sensor Telemetry',
   `status` ENUM('OK', 'WARN', 'CRITICAL') DEFAULT 'OK',
   `vendor_dispatched` TINYINT(1) DEFAULT 0,
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -123,8 +124,8 @@ CREATE TABLE IF NOT EXISTS `waste_bins` (
 -- 9. Noise Guardian Violations Table
 CREATE TABLE IF NOT EXISTS `noise_data` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `current_decibels` INT DEFAULT 48,
-  `target_unit` VARCHAR(50) DEFAULT 'B-304',
+  `current_decibels` INT DEFAULT 0,
+  `target_unit` VARCHAR(50) DEFAULT NULL,
   `current_violation_stage` INT DEFAULT 0,
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -232,12 +233,12 @@ VALUES
 ('u-2', 'Priya Patel (Admin)', 'admin@society.com', '$2a$10$E8.3G/pD0HjJzSgO1.vO3.lE.aT4J.H.29Z/vXp3Q/LqZk2m2b4C.', 'Facility Admin', 'Management Office', '+91 98765 11111')
 ON DUPLICATE KEY UPDATE `email`=`email`;
 
-INSERT INTO `water_metrics` (`id`, `overhead_tank`, `underground_sump`, `recycled_water`, `ph_level`, `tds_level`, `today_consumption_liters`, `flow_rate_lpm`)
-VALUES (1, 74, 92, 58, 7.2, 145, 48200, 120)
-ON DUPLICATE KEY UPDATE `overhead_tank`=VALUES(`overhead_tank`);
+INSERT INTO `water_metrics` (`id`, `overhead_tank`, `underground_sump`, `recycled_water`, `ph_level`, `tds_level`, `today_consumption_liters`, `flow_rate_lpm`, `pump_operational_state`, `last_quality_check`)
+VALUES (1, 0, 0, 0, 0.0, 0, 0, 0, 'NOT_CONNECTED', 'Awaiting Hardware Telemetry')
+ON DUPLICATE KEY UPDATE `pump_operational_state`=VALUES(`pump_operational_state`);
 
 INSERT INTO `parking_slots` (`id`, `slot_number`, `is_occupied`, `resident_name`, `vehicle_type`, `vehicle_number`, `is_ev_charging`) VALUES
-('1', 'A-101', 1, 'Rahul Sharma', 'EV Car', 'MH 12 AB 1234', 1),
+('1', 'A-101', 0, 'Unassigned', 'None', 'N/A', 0),
 ('2', 'A-102', 0, 'Unassigned', 'None', 'N/A', 0),
-('3', 'B-205', 1, 'Priya Patel', 'Sedan', 'MH 12 CD 5678', 0)
+('3', 'B-205', 0, 'Unassigned', 'None', 'N/A', 0)
 ON DUPLICATE KEY UPDATE `slot_number`=VALUES(`slot_number`);

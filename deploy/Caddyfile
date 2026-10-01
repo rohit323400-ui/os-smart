@@ -1,0 +1,44 @@
+# ====================================================================
+# 🛡️ RAAH NAGAR - PRODUCTION CADDY REVERSE PROXY CONFIGURATION
+# ====================================================================
+# Automatic Let's Encrypt SSL/TLS, HTTP/2 & HTTP/3, and WSS support
+# ====================================================================
+
+society.yourdomain.com {
+    # Automatic HTTPS & TLS managed by Caddy
+
+    # Security Headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Gzip & Zstandard compression
+    encode zstd gzip
+
+    # Reverse proxy API and WebSocket connections to local Node server
+    handle /api/* {
+        reverse_proxy 127.0.0.1:5000 {
+            header_up X-Forwarded-Proto https
+            header_up Host {host}
+        }
+    }
+
+    # WebSocket Real-Time Telemetry Stream
+    handle /ws* {
+        reverse_proxy 127.0.0.1:5000 {
+            header_up X-Forwarded-Proto https
+            header_up Host {host}
+        }
+    }
+
+    # Serve built SPA frontend
+    handle {
+        root * /var/www/raahnagar/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

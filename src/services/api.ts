@@ -86,12 +86,12 @@ export async function sendPumpCommand(command: 'START' | 'STOP', deviceId?: stri
   }
 }
 
-export async function sendValveCommand(closed: boolean, isSimulation = false) {
+export async function sendValveCommand(closed: boolean, deviceId = 'VALVE-MAIN-V102') {
   try {
     const res = await fetch(`${API_BASE_URL}/water/valve-command`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ closed, isSimulation })
+      body: JSON.stringify({ closed, deviceId })
     });
     return await res.json();
   } catch (err) {

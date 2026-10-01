@@ -56,6 +56,22 @@ export async function runProductionMigration() {
       await connection.query("ALTER TABLE visitor_requests ADD COLUMN verified_by_guard_id VARCHAR(64) DEFAULT NULL");
     }
 
+    // 2.5 Water Metrics: Support NOT_CONNECTED and reset fake telemetry
+    console.log('🛠️ Normalizing water_metrics table schema and defaults');
+    await connection.query(`
+      ALTER TABLE water_metrics 
+      MODIFY COLUMN pump_operational_state VARCHAR(50) NOT NULL DEFAULT 'NOT_CONNECTED';
+    `);
+
+    await connection.query(`
+      UPDATE water_metrics 
+      SET overhead_tank = 0, underground_sump = 0, recycled_water = 0,
+          ph_level = 0.0, tds_level = 0, today_consumption_liters = 0,
+          flow_rate_lpm = 0, pump_operational_state = 'NOT_CONNECTED',
+          last_quality_check = 'Awaiting Hardware Telemetry'
+      WHERE id = 1;
+    `);
+
     // 3. IoT Devices Registry Table
     console.log('🛠️ Creating or verifying iot_devices table');
     await connection.query(`
@@ -134,6 +150,31 @@ export async function runProductionMigration() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         confirmed_at DATETIME DEFAULT NULL
       ) ENGINE=InnoDB;
+    `);
+
+    // 6. Noise Data Table verification
+    console.log('🛠️ Verifying noise_data table');
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS noise_data (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        current_decibels INT DEFAULT 0,
+        target_unit VARCHAR(50) DEFAULT NULL,
+        current_violation_stage INT DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB;
+    `);
+    await connection.query(`
+      INSERT INTO noise_data (id, current_decibels, target_unit, current_violation_stage)
+      VALUES (1, 0, NULL, 0)
+      ON DUPLICATE KEY UPDATE current_decibels = 0, target_unit = NULL, current_violation_stage = 0;
+    `);
+
+    // 7. Fire Emergency clean reset
+    console.log('🛠️ Normalizing fire_emergency defaults');
+    await connection.query(`
+      UPDATE fire_emergency
+      SET smoke_sensors_active = 0, is_alarm_active = 0, affected_zone = 'None'
+      WHERE id = 1;
     `);
 
     console.log('✅ Production migration executed successfully!');
