@@ -9,7 +9,9 @@
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "push": "node scripts/git-sync.js",
+    "watch:push": "node scripts/git-sync.js watch"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
