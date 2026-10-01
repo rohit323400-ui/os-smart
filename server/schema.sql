@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `phone` VARCHAR(30) DEFAULT NULL,
   `emergency_contact` VARCHAR(30) DEFAULT NULL,
   `vehicle_number` VARCHAR(50) DEFAULT NULL,
-  `reset_otp` VARCHAR(10) DEFAULT NULL,
+  `reset_otp_hash` VARCHAR(255) DEFAULT NULL,
+  `reset_otp_attempts` INT DEFAULT 0,
   `reset_otp_expires` BIGINT DEFAULT NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

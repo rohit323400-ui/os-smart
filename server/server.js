@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import db, { query, recordAuditLog, verifyFlatRegistry, createDeviceCommand, confirmDeviceCommand } from './db.js';
 import { authenticateToken, requirePermission, requireRole, rateLimit, JWT_SECRET } from './middleware/auth.js';
 import { ROLES, PERMISSIONS, hasPermission } from './rbac.js';
+import { sendSmsNotification, sendEmailNotification } from './services/notifier.js';
 
 // Load Environment Variables
 dotenv.config();
@@ -21,6 +22,15 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'data.json');
+
+// 🔒 Secure IoT Gateway Secret (No Static Hardcoded Secret in Production)
+let iotGatewayKey = process.env.IOT_GATEWAY_KEY;
+if (!iotGatewayKey || iotGatewayKey === 'raah_nagar_gateway_secret_2026') {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: IOT_GATEWAY_KEY must be securely defined in environment variables for production mode!');
+  }
+  iotGatewayKey = crypto.randomBytes(32).toString('hex');
+}
 
 // Initialize Gemini AI Client (Advisory / Summarization Only)
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -36,7 +46,7 @@ if (geminiApiKey && geminiApiKey.trim() !== '' && geminiApiKey !== 'your_gemini_
   console.log('💡 Note: GEMINI_API_KEY not configured. Operating in safe advisory simulation.');
 }
 
-// In-Memory Telemetry Cache (Backed by MySQL raah_nagar_db)
+// In-Memory Telemetry Cache (Synchronized with MySQL raah_nagar_db)
 let telemetryCache = {
   waterData: {
     overheadTank: 74,
@@ -57,8 +67,8 @@ let telemetryCache = {
     isAlarmActive: false,
     affectedZone: 'None',
     smokeSensorsActive: 48,
-    sprinklersStatus: 'STANDBY', // Real state: STANDBY | MANUAL_OVERRIDE_ENABLED
-    fireDeptStatus: 'NOT_DISPATCHED', // Real state: NOT_DISPATCHED | EMERGENCY_DESK_ALERTED
+    sprinklersStatus: 'STANDBY', // STANDBY | MANUAL_OVERRIDE_ENABLED
+    fireDeptStatus: 'NOT_DISPATCHED', // NOT_DISPATCHED | EMERGENCY_DESK_ALERTED
     evacuationRouteOpen: true
   },
   visitorRequests: [],
@@ -219,7 +229,7 @@ async function syncFromDatabase() {
       details: `Action performed by ${a.user_role} (IP: ${a.ip_address || 'local'})`
     }));
 
-    // Cache backup
+    // Cache backup for offline disaster resilience
     fs.writeFileSync(DB_FILE, JSON.stringify(telemetryCache, null, 2));
     console.log('🔄 Telemetry and state synchronized from MySQL raah_nagar_db to runtime cache.');
   } catch (err) {
@@ -237,13 +247,8 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,ht
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
-
-    // Check configured production origins
     if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    // Check localhost or private network development IPs (10.x.x.x, 192.168.x.x, 127.0.0.1)
     if (
       origin.startsWith('http://localhost:') || 
       origin.startsWith('http://127.0.0.1:') ||
@@ -252,7 +257,6 @@ app.use(cors({
     ) {
       return callback(null, true);
     }
-
     return callback(null, false);
   },
   credentials: true,
@@ -376,7 +380,7 @@ app.post('/api/ai/ask', rateLimit({ windowMs: 60000, maxRequests: 20 }), authent
   if (aiClient) {
     try {
       const response = await aiClient.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash',
         contents: `You are RAAH NAGAR AI, an analytical advisory intelligence for a smart residential community.
 Authenticated User: "${userName}", Verified Role: "${userRole}".
 IMPORTANT SAFETY MANDATE: You provide analytical advice, pattern detection, and consumption statistics. You NEVER operate physical hardware, pumps, or fire equipment.
@@ -394,7 +398,7 @@ Provide a concise, role-tailored, professional advisory response.`
       });
       return res.json({ success: true, answer: response.text, mode: 'gemini-live' });
     } catch (err) {
-      console.error('Gemini query error:', err.message);
+      console.warn('Gemini query fallback:', err.message);
     }
   }
 
@@ -410,7 +414,7 @@ app.post('/api/ai/analyze-emergency', authenticateToken, requirePermission(PERMI
   if (aiClient) {
     try {
       const response = await aiClient.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash',
         contents: `Safety Advisor: Analyze this incident and output 3 prioritized response guidelines for human operators: ${context}`
       });
       return res.json({ success: true, analysis: response.text, mode: 'gemini-live' });
@@ -450,21 +454,14 @@ app.post('/api/water/pump-command', authenticateToken, requirePermission(PERMISS
       ip: req.ip
     });
 
-    // In a testbed environment without physical controller connected, simulate the gateway acknowledgement:
-    setTimeout(async () => {
-      const confirmedState = command === 'START' ? 'RUNNING' : 'OFF';
-      telemetryCache.waterData.pumpOperationalState = confirmedState;
-
-      await confirmDeviceCommand(commandId, 'CONFIRMED');
-      await query('UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1', [confirmedState]);
-      broadcast('WATER_UPDATED', telemetryCache.waterData);
-    }, 1500);
-
+    // 🛡️ Real Production Rule 3: Do NOT fake automated confirmation via setTimeout.
+    // The command status remains 'PENDING' until the physical IoT gateway / MQTT bridge posts to /api/iot/gateway/telemetry.
     res.json({
       success: true,
-      message: `Command '${command}' queued with ID ${commandId}. State remains PENDING until physical pump controller responds.`,
+      message: `Command '${command}' queued with ID ${commandId}. State remains PENDING until physical pump controller sends confirmation.`,
       commandId,
-      status: 'PENDING'
+      status: 'PENDING',
+      awaitingPhysicalGateway: true
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to issue pump command: ' + err.message });
@@ -474,18 +471,21 @@ app.post('/api/water/pump-command', authenticateToken, requirePermission(PERMISS
 // Dedicated Real IoT Gateway Telemetry Ingestion Endpoint
 app.post('/api/iot/gateway/telemetry', async (req, res) => {
   const gatewayKey = req.headers['x-gateway-key'];
-  if (gatewayKey !== (process.env.IOT_GATEWAY_KEY || 'raah_nagar_gateway_secret_2026')) {
-    return res.status(401).json({ success: false, error: 'Unauthorized IoT Gateway' });
+  if (!gatewayKey || gatewayKey !== iotGatewayKey) {
+    return res.status(401).json({ success: false, error: 'Unauthorized IoT Gateway Key' });
   }
 
-  const { deviceId, deviceType, operationalState, readings } = req.body;
+  const { deviceId, deviceType, operationalState, commandId, readings } = req.body;
   if (deviceType === 'WATER_PUMP' && operationalState) {
     telemetryCache.waterData.pumpOperationalState = operationalState;
+    if (commandId) {
+      await confirmDeviceCommand(commandId, 'CONFIRMED');
+    }
     await query('UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1', [operationalState]);
     broadcast('WATER_UPDATED', telemetryCache.waterData);
   }
 
-  res.json({ success: true, message: `Telemetry ingested for ${deviceId}` });
+  res.json({ success: true, message: `Physical telemetry confirmed and ingested for ${deviceId}` });
 });
 
 // Water Valve Manual Shutoff Command
@@ -628,7 +628,7 @@ app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.V
     return res.status(400).json({ success: false, error: 'Visitor name and flat unit number are required.' });
   }
 
-  // 🛡️ Security Rule 8: Cryptographically secure 6-digit OTP
+  // 🛡️ Cryptographically secure 6-digit OTP
   const rawOtp = crypto.randomInt(100000, 999999).toString();
   const otpHash = crypto.createHash('sha256').update(rawOtp).digest('hex');
   const validUntil = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6 hours
@@ -653,6 +653,14 @@ app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.V
       [visitorId, visitorName, phone || null, category, unitNumber, req.user.id, otpHash, validUntil]
     );
 
+    // Dispatch SMS notification to visitor phone if provided
+    if (phone) {
+      await sendSmsNotification({
+        toPhone: phone,
+        message: `Your RAAH NAGAR Society visitor entry pass code for ${unitNumber} is ${rawOtp}. Valid for 6 hours.`
+      });
+    }
+
     await recordAuditLog({
       userId: req.user.id,
       userRole: req.user.role,
@@ -669,7 +677,6 @@ app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.V
   telemetryCache.visitorRequests.unshift(newVisitor);
   broadcast('VISITOR_UPDATED', telemetryCache.visitorRequests);
 
-  // Return the one-time raw pass to the creator only; it is stored as SHA-256 hash in DB
   res.json({
     success: true,
     data: newVisitor,
@@ -733,7 +740,7 @@ app.post('/api/visitors/verify-gate', authenticateToken, requirePermission(PERMI
   }
 });
 
-// Approve Visitor (For Resident)
+// Approve Visitor
 app.post('/api/visitors/approve/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const entryTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -747,7 +754,7 @@ app.post('/api/visitors/approve/:id', authenticateToken, async (req, res) => {
   res.json({ success: true, data: telemetryCache.visitorRequests });
 });
 
-// 8. Maintenance Tickets (SLA Tracking)
+// 8. Maintenance Tickets
 app.get('/api/maintenance', authenticateToken, (req, res) => {
   const scopedTickets = req.user.role === ROLES.RESIDENT
     ? telemetryCache.maintenanceTickets.filter(t => t.residentUserId === req.user.id)
@@ -840,7 +847,7 @@ app.post('/api/lift/reset/:id', authenticateToken, requirePermission(PERMISSIONS
   res.json({ success: true, data: telemetryCache.liftStatuses });
 });
 
-// 10. Waste Management (Real Dispatch Workflow)
+// 10. Waste Management
 app.get('/api/waste', authenticateToken, (req, res) => res.json(telemetryCache.wasteBins));
 
 app.post('/api/waste/dispatch/:id', authenticateToken, requirePermission(PERMISSIONS.OPERATIONAL_CONTROLS), async (req, res) => {
@@ -947,7 +954,6 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
       });
     }
 
-    // Default settings if record not yet initialized
     res.json({
       success: true,
       settings: {
@@ -1003,10 +1009,11 @@ app.get('/api/audit-logs', authenticateToken, requirePermission(PERMISSIONS.AUDI
 });
 
 // ==========================================
-// 15. AUTHENTICATION (Signup, Login, Password Reset)
+// 15. AUTHENTICATION (Zero Plaintext Passwords)
 // ==========================================
 
 // Public Signup: Strictly locks role to Resident and verifies flat in MySQL registry
+// 🚨 URGENT SECURITY FIX: Only password_hash is stored. Plaintext password is NEVER saved to database.
 app.post('/api/auth/signup', rateLimit({ windowMs: 60000, maxRequests: 10 }), async (req, res) => {
   try {
     const { name, email, password, flatNumber = 'A-101', phone } = req.body;
@@ -1023,13 +1030,15 @@ app.post('/api/auth/signup', rateLimit({ windowMs: 60000, maxRequests: 10 }), as
       return res.status(400).json({ success: false, message: 'An account with this email already exists.' });
     }
 
+    // 🔒 Strong bcrypt hashing (salt rounds: 10)
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = `u-${Date.now()}`;
 
+    // Notice: Column 'password' dropped from database; ONLY password_hash is inserted
     await query(
-      `INSERT INTO users (id, name, email, password, password_hash, role, flat_no, flat_number, phone, is_verified)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [userId, name, email.toLowerCase().trim(), password, passwordHash, assignedRole, flatNumber, flatNumber, phone || '']
+      `INSERT INTO users (id, name, email, password_hash, role, flat_no, flat_number, phone, is_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [userId, name, email.toLowerCase().trim(), passwordHash, assignedRole, flatNumber, flatNumber, phone || '']
     );
 
     // Seed default settings for user
@@ -1061,7 +1070,7 @@ app.post('/api/auth/signup', rateLimit({ windowMs: 60000, maxRequests: 10 }), as
   }
 });
 
-// Login API
+// Login API (Strictly verifies against password_hash)
 app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -1069,7 +1078,7 @@ app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), asy
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
     }
 
-    const users = await query('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const users = await query('SELECT id, name, email, role, flat_number, phone, emergency_contact, vehicle_number, password_hash FROM users WHERE email = ?', [email.toLowerCase().trim()]);
     if (users.length === 0) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
@@ -1105,29 +1114,42 @@ app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), asy
   }
 });
 
-// Secure Password Reset: Cryptographic OTP + SHA-256 Hashed Storage + Max 3 Attempts + No Console Leaks
+// Secure Password Reset: Cryptographic OTP + SHA-256 Hashed Storage + Max 3 Attempts + Carrier Dispatch
 app.post('/api/auth/forgot-password', rateLimit({ windowMs: 60000, maxRequests: 5 }), async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
 
   try {
-    const users = await query('SELECT id FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const users = await query('SELECT id, phone, email FROM users WHERE email = ?', [email.toLowerCase().trim()]);
     if (users.length === 0) {
       return res.status(404).json({ success: false, message: 'Email not found in society registry.' });
     }
 
+    const user = users[0];
     // 🛡️ Cryptographically secure 6-digit OTP
     const rawOtp = crypto.randomInt(100000, 999999).toString();
     const otpHash = crypto.createHash('sha256').update(rawOtp).digest('hex');
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    // Store only the SHA-256 hash in database; zero plaintext in DB, zero plaintext printed to stdout
+    // Store only the SHA-256 hash in database; zero plaintext in DB, zero plaintext in stdout
     await query(
       'UPDATE users SET reset_otp_hash = ?, reset_otp_attempts = 0, reset_otp_expires = ? WHERE id = ?',
-      [otpHash, expiresAt, users[0].id]
+      [otpHash, expiresAt, user.id]
     );
 
-    // In a live SMS/Email dispatch service, rawOtp is transmitted securely to the user's phone/email
+    // Dispatch via real carrier notification adapter
+    if (user.phone) {
+      await sendSmsNotification({
+        toPhone: user.phone,
+        message: `Your RAAH NAGAR password reset OTP is ${rawOtp}. Valid for 10 minutes. Do not share.`
+      });
+    }
+    await sendEmailNotification({
+      toEmail: user.email,
+      subject: 'RAAH NAGAR Password Reset OTP',
+      text: `Your password reset code is ${rawOtp}. Valid for 10 minutes.`
+    });
+
     res.json({
       success: true,
       message: 'Password reset OTP has been securely generated and dispatched to your registered contact channel.'
@@ -1137,6 +1159,7 @@ app.post('/api/auth/forgot-password', rateLimit({ windowMs: 60000, maxRequests: 
   }
 });
 
+// Reset Password: ONLY updates password_hash
 app.post('/api/auth/reset-password', rateLimit({ windowMs: 60000, maxRequests: 5 }), async (req, res) => {
   const { email, otp, newPassword } = req.body;
   if (!email || !otp || !newPassword) {
@@ -1144,7 +1167,7 @@ app.post('/api/auth/reset-password', rateLimit({ windowMs: 60000, maxRequests: 5
   }
 
   try {
-    const users = await query('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const users = await query('SELECT id, reset_otp_hash, reset_otp_expires, reset_otp_attempts, role FROM users WHERE email = ?', [email.toLowerCase().trim()]);
     if (users.length === 0) return res.status(400).json({ success: false, message: 'Invalid request.' });
 
     const user = users[0];
@@ -1152,7 +1175,6 @@ app.post('/api/auth/reset-password', rateLimit({ windowMs: 60000, maxRequests: 5
       return res.status(400).json({ success: false, message: 'Reset token has expired or is invalid.' });
     }
 
-    // Enforce 3-attempt limit
     if (user.reset_otp_attempts >= 3) {
       await query('UPDATE users SET reset_otp_hash = NULL, reset_otp_expires = NULL WHERE id = ?', [user.id]);
       return res.status(403).json({ success: false, message: 'Too many invalid attempts. Reset request has been invalidated.' });
@@ -1164,10 +1186,12 @@ app.post('/api/auth/reset-password', rateLimit({ windowMs: 60000, maxRequests: 5
       return res.status(400).json({ success: false, message: 'Invalid OTP code.' });
     }
 
+    // 🔒 Hash new password using bcrypt
     const passwordHash = await bcrypt.hash(newPassword, 10);
+    // Notice: ONLY password_hash is updated, zero plaintext stored
     await query(
-      'UPDATE users SET password = ?, password_hash = ?, reset_otp_hash = NULL, reset_otp_expires = NULL, reset_otp_attempts = 0 WHERE id = ?',
-      [newPassword, passwordHash, user.id]
+      'UPDATE users SET password_hash = ?, reset_otp_hash = NULL, reset_otp_expires = NULL, reset_otp_attempts = 0 WHERE id = ?',
+      [passwordHash, user.id]
     );
 
     await recordAuditLog({
@@ -1185,7 +1209,7 @@ app.post('/api/auth/reset-password', rateLimit({ windowMs: 60000, maxRequests: 5
   }
 });
 
-// Update Profile
+// Update Profile: ONLY updates password_hash
 app.put('/api/auth/profile/:userId', authenticateToken, async (req, res) => {
   const { userId } = req.params;
   const { name, phone, emergencyContact, vehicleNumber, password } = req.body;
@@ -1206,8 +1230,6 @@ app.put('/api/auth/profile/:userId', authenticateToken, async (req, res) => {
       const hash = await bcrypt.hash(password, 10);
       updateFields.push('password_hash = ?');
       updateParams.push(hash);
-      updateFields.push('password = ?');
-      updateParams.push(password);
     }
 
     if (updateFields.length > 0) {
@@ -1229,6 +1251,6 @@ server.listen(PORT, () => {
   console.log(`📡 WebSocket server live at ws://localhost:${PORT}`);
   console.log(`🏛️ Primary Database: MySQL 9.7 (raah_nagar_db)`);
   console.log(`🛡️ Central Authentication & Fine-Grained RBAC: ACTIVE`);
-  console.log(`🔒 Hashed OTPs & Strict Attempt Limiters: ACTIVE`);
+  console.log(`🔒 Hashed Passwords & OTPs (Zero Plaintext Stored): ENFORCED`);
   console.log(`=================================================`);
 });
