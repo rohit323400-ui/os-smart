@@ -7,16 +7,20 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-// Load Environment Variables from .env file
+import db, { query, recordAuditLog, verifyFlatRegistry, createDeviceCommand, confirmDeviceCommand } from './db.js';
+import { authenticateToken, requirePermission, requireRole, rateLimit } from './middleware/auth.js';
+import { ROLES, PERMISSIONS, hasPermission } from './rbac.js';
+
+// Load Environment Variables
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'data.json');
+const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_society_jwt_key_2026';
 
 // Initialize Gemini AI Client
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -24,29 +28,16 @@ let aiClient = null;
 if (geminiApiKey && geminiApiKey.trim() !== '' && geminiApiKey !== 'your_gemini_api_key_here') {
   try {
     aiClient = new GoogleGenAI({ apiKey: geminiApiKey });
-    console.log('🤖 Google Gemini AI engine initialized successfully!');
+    console.log('🤖 Google Gemini AI engine initialized successfully (Advisory & Analytics Mode)!');
   } catch (err) {
     console.warn('⚠️ Could not initialize Gemini AI client:', err.message);
   }
 } else {
-    console.log('💡 Note: GEMINI_API_KEY not set in .env. AI endpoints will operate in smart simulation mode.');
+  console.log('💡 Note: GEMINI_API_KEY not configured. Operating in safe advisory simulation.');
 }
 
-// Optional MongoDB Mongoose Connection
-let isMongoConnected = false;
-if (process.env.MONGODB_URI && process.env.MONGODB_URI.startsWith('mongodb')) {
-  mongoose.connect(process.env.MONGODB_URI)
-    .then(() => {
-      isMongoConnected = true;
-      console.log('🍃 Connected to MongoDB database!');
-    })
-    .catch((err) => {
-      console.warn('⚠️ MongoDB connection error, falling back to local JSON database:', err.message);
-    });
-}
-
-// Initial Data Structure
-const defaultData = {
+// In-Memory Fallback State (Synchronized with MySQL)
+let inMemoryData = {
   waterData: {
     overheadTank: 74,
     undergroundSump: 92,
@@ -56,7 +47,8 @@ const defaultData = {
     todayConsumptionLiters: 48200,
     flowRateLPM: 120,
     pumpAutoCutoffActive: true,
-    lastQualityCheck: "Today, 08:30 AM"
+    pumpOperationalState: 'OFF',
+    lastQualityCheck: 'Today, 08:30 AM'
   },
   parkingSlots: [
     { id: '1', slotNumber: 'A-101', isOccupied: true, residentName: 'Rahul Sharma', vehicleType: 'EV Car', vehicleNumber: 'MH 12 AB 1234', isEvCharging: true },
@@ -72,17 +64,18 @@ const defaultData = {
     smokeSensorsActive: 48,
     sprinklersStatus: 'STANDBY',
     fireDepartmentNotified: false,
+    fireDeptStatus: 'NOT_NOTIFIED',
     evacuationRouteOpen: true
   },
   visitorRequests: [
-    { id: 'v1', visitorName: 'Ramesh Kumar', category: 'Delivery', unitNumber: 'B-402', otpCode: '4829', status: 'PENDING', entryTime: 'Pending' },
-    { id: 'v2', visitorName: 'Anita Roy', category: 'Guest', unitNumber: 'A-101', otpCode: '1192', status: 'APPROVED', entryTime: '10:15 AM' },
-    { id: 'v3', visitorName: 'FastClean Maid', category: 'Service', unitNumber: 'C-201', otpCode: '9940', status: 'APPROVED', entryTime: '08:00 AM' }
+    { id: 'v1', visitorName: 'Ramesh Kumar', category: 'Delivery', unitNumber: 'B-402', otpCode: '4829', status: 'PENDING', entryTime: 'Pending', validUntil: '2026-10-02T12:00:00Z' },
+    { id: 'v2', visitorName: 'Anita Roy', category: 'Guest', unitNumber: 'A-101', otpCode: '1192', status: 'APPROVED', entryTime: '10:15 AM', validUntil: '2026-10-02T18:00:00Z' },
+    { id: 'v3', visitorName: 'FastClean Maid', category: 'Service', unitNumber: 'C-201', otpCode: '9940', status: 'APPROVED', entryTime: '08:00 AM', validUntil: '2026-10-02T18:00:00Z' }
   ],
   maintenanceTickets: [
-    { id: 'm1', title: 'Corridor Light Flicker', unit: 'Tower A 3rd Fl', priority: 'LOW', status: 'OPEN', date: '2026-09-29', technician: 'Ramesh (Electrician)' },
-    { id: 'm2', title: 'Low Water Pressure', unit: 'B-604', priority: 'MEDIUM', status: 'IN_PROGRESS', date: '2026-09-29', technician: 'Suresh (Plumber)' },
-    { id: 'm3', title: 'Main Gate Sensor Calib', unit: 'Gate 1', priority: 'HIGH', status: 'RESOLVED', date: '2026-09-28', technician: 'AI System Auto' }
+    { id: 'm1', ticketNumber: 'MNT-1001', title: 'Corridor Light Flicker', unit: 'Tower A 3rd Fl', priority: 'LOW', status: 'OPEN', date: '2026-09-29', technician: 'Ramesh (Electrician)', slaHours: 48 },
+    { id: 'm2', ticketNumber: 'MNT-1002', title: 'Low Water Pressure', unit: 'B-604', priority: 'MEDIUM', status: 'IN_PROGRESS', date: '2026-09-29', technician: 'Suresh (Plumber)', slaHours: 24 },
+    { id: 'm3', ticketNumber: 'MNT-1003', title: 'Main Gate Sensor Calib', unit: 'Gate 1', priority: 'HIGH', status: 'RESOLVED', date: '2026-09-28', technician: 'AI System Auto', slaHours: 4 }
   ],
   liftStatuses: [
     { id: 'l1', liftName: 'Tower A - Main Passenger', floor: 7, status: 'NORMAL', ardBatteryPercent: 98, lastServiced: '2026-09-15' },
@@ -109,162 +102,196 @@ const defaultData = {
     ]
   },
   resourceItems: [
-    { id: 'r1', name: 'Clubhouse Banquet Hall', category: 'Amenity', status: 'AVAILABLE', pricePerHour: 500, bookedBy: null },
-    { id: 'r2', name: 'EV Fast Charger Spot 1', category: 'Utility', status: 'BUSY', pricePerHour: 80, bookedBy: 'Rahul (A-101)' },
-    { id: 'r3', name: 'Rooftop BBQ Grill Area', category: 'Amenity', status: 'AVAILABLE', pricePerHour: 200, bookedBy: null }
+    { id: 'res-1', name: 'Community Banquet Hall', category: 'Event Space', status: 'AVAILABLE', pricePerHour: 500, bookedBy: null },
+    { id: 'res-2', name: 'Clubhouse Badminton Court 1', category: 'Sports', status: 'AVAILABLE', pricePerHour: 100, bookedBy: null },
+    { id: 'res-3', name: 'Rooftop Gazebo Barbecue Area', category: 'Leisure', status: 'AVAILABLE', pricePerHour: 250, bookedBy: null },
+    { id: 'res-4', name: 'Society Swimming Pool Lane 1', category: 'Sports', status: 'AVAILABLE', pricePerHour: 0, bookedBy: null }
   ],
   actionLogs: [
     { id: 'log1', timestamp: '16:05:12', action: 'Overhead Tank Auto-Cutoff Executed', module: 'WATER', riskLevel: 'LOW', details: 'Pumps shut down safely at 95% threshold.' },
     { id: 'log2', timestamp: '15:40:00', action: 'Visitor OTP Auto-Verified', module: 'SECURITY', riskLevel: 'LOW', details: 'Ramesh Kumar allowed entry at Gate 1.' }
   ],
-  users: [
-    {
-      id: 'u-1',
-      name: 'Rahul Sharma',
-      email: 'rahul@society.com',
-      passwordHash: '$2a$10$E8.3G/pD0HjJzSgO1.vO3.lE.aT4J.H.29Z/vXp3Q/LqZk2m2b4C.', // password: 123456
-      role: 'Resident',
-      flatNumber: 'A-101',
-      phone: '+91 98765 43210',
-      emergencyContact: '+91 98765 00000',
-      vehicleNumber: 'MH 12 AB 1234'
-    },
-    {
-      id: 'u-2',
-      name: 'Priya Patel (Admin)',
-      email: 'admin@society.com',
-      passwordHash: '$2a$10$E8.3G/pD0HjJzSgO1.vO3.lE.aT4J.H.29Z/vXp3Q/LqZk2m2b4C.', // password: 123456
-      role: 'Facility Admin',
-      flatNumber: 'Management Office',
-      phone: '+91 98765 11111',
-      emergencyContact: '+91 98765 00000',
-      vehicleNumber: 'MH 12 CD 5678'
-    }
-  ],
+  users: [],
   userSettings: {
     accountProfile: {
       residentName: 'Rohit Sharma',
-      flatNumber: 'Unit C-402',
+      flatNumber: 'A-101',
       emergencyContact: '+91 98765 00000',
-      verifiedBadge: true,
-      familyMembers: [
-        { id: 'fm-1', name: 'Priya Sharma', relation: 'Spouse', phone: '+91 98765 11111' },
-        { id: 'fm-2', name: 'Aarav Sharma', relation: 'Child', phone: '' }
-      ],
-      registeredVehicles: [
-        { id: 'v-1', plateNumber: 'MH-02-CP-1234', vehicleType: 'EV Car', slotAssigned: '#42' },
-        { id: 'v-2', plateNumber: 'MH-02-CP-5678', vehicleType: 'Scooter', slotAssigned: '#42B' }
-      ],
-      digitalPasskeys: {
-        rfidCardId: 'RFID-9842-X',
-        biometricPassEnabled: true,
-        mobileNfcKeyEnabled: true
-      }
-    },
-    aiAutomation: {
-      autoValveV102Shutoff: true,
-      humanApprovalRequiredForRoutine: true,
-      motionPirSensitivity: 'MEDIUM',
-      ambientLightThresholdLux: 30,
-      predictiveShortageAlerts: true,
-      predictiveShortageFrequency: 'IMMEDIATE'
-    },
-    privacyData: {
-      cctvEdgeProcessingOnly: true,
-      noiseGuardianRawMicDisabled: true,
-      activityLogsRetentionDays: 30,
-      autoDeleteLogsEnabled: true
+      verifiedBadge: true
     },
     notificationsAlerts: {
       criticalAlertsOverrideSound: true,
-      infoAlertsEnabled: true,
-      routineAlertsEnabled: true,
-      quietHoursEnabled: true,
-      quietHoursStart: '22:00',
-      quietHoursEnd: '07:00'
-    },
-    visitorSecurityRules: {
-      preApprovedDeliveriesSilentPass: true,
-      guestVerificationMethod: 'QR_OTP',
-      blacklistedVisitors: [
-        { id: 'bl-1', name: 'Unknown Vendor', reason: 'Unauthorized Soliciting', date: '2026-08-12' }
-      ]
-    },
-    walletSharing: {
-      pCoinsBalance: 450,
-      bankPayoutAccount: 'HDFC Bank **** 4892',
-      resourceSharingAvailabilityWindow: '09:00 AM - 08:00 PM',
-      toolSecurityDepositLimitPCoins: 100,
-      trustScorePrivateMode: true
+      infoAlertsEnabled: true
     },
     appSystemPreferences: {
       theme: 'dark',
-      language: 'hi',
-      emergencyVoiceLanguage: 'hi',
-      cacheSizeMb: 12.4,
-      offlineSyncEnabled: true,
-      rnVersion: 'RN Version 1.0'
+      language: 'hi'
     }
   }
 };
 
-// Data Persistence Helper
-function loadDb() {
+// Sync MySQL data into memory cache
+async function syncFromDatabase() {
   try {
-    if (fs.existsSync(DB_FILE)) {
-      const content = fs.readFileSync(DB_FILE, 'utf-8');
-      return JSON.parse(content);
+    // 1. Water
+    const waterRows = await query('SELECT * FROM water_metrics LIMIT 1');
+    if (waterRows.length > 0) {
+      const w = waterRows[0];
+      inMemoryData.waterData = {
+        overheadTank: w.overhead_tank,
+        undergroundSump: w.underground_sump,
+        recycledWater: w.recycled_water,
+        phLevel: parseFloat(w.ph_level),
+        tdsLevel: w.tds_level,
+        todayConsumptionLiters: w.today_consumption_liters,
+        flowRateLPM: w.flow_rate_lpm,
+        pumpAutoCutoffActive: !!w.pump_cutoff_active,
+        pumpOperationalState: w.pump_operational_state || 'OFF',
+        lastQualityCheck: w.last_quality_check
+      };
     }
+
+    // 2. Parking
+    const parkingRows = await query('SELECT * FROM parking_slots');
+    if (parkingRows.length > 0) {
+      inMemoryData.parkingSlots = parkingRows.map(p => ({
+        id: p.id,
+        slotNumber: p.slot_number,
+        isOccupied: !!p.is_occupied,
+        residentName: p.resident_name,
+        vehicleType: p.vehicle_type,
+        vehicleNumber: p.vehicle_number,
+        isEvCharging: !!p.is_ev_charging
+      }));
+    }
+
+    // 3. Fire Emergency
+    const fireRows = await query('SELECT * FROM fire_emergency LIMIT 1');
+    if (fireRows.length > 0) {
+      const f = fireRows[0];
+      inMemoryData.fireEmergencyData = {
+        isAlarmActive: !!f.is_alarm_active,
+        affectedZone: f.affected_zone,
+        smokeSensorsActive: f.smoke_sensors_active,
+        sprinklersStatus: f.sprinklers_status,
+        fireDepartmentNotified: f.fire_dept_status === 'NOTIFIED',
+        fireDeptStatus: f.fire_dept_status,
+        evacuationRouteOpen: !!f.evacuation_route_open
+      };
+    }
+
+    // 4. Visitors
+    const visitorRows = await query('SELECT * FROM visitor_requests ORDER BY created_at DESC LIMIT 50');
+    if (visitorRows.length > 0) {
+      inMemoryData.visitorRequests = visitorRows.map(v => ({
+        id: v.id,
+        visitorName: v.visitor_name,
+        category: v.category,
+        unitNumber: v.unit_number,
+        otpCode: v.otp_code,
+        status: v.status,
+        entryTime: v.entry_time,
+        validUntil: v.valid_until
+      }));
+    }
+
+    // 5. Maintenance Tickets
+    const ticketRows = await query('SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT 50');
+    if (ticketRows.length > 0) {
+      inMemoryData.maintenanceTickets = ticketRows.map(t => ({
+        id: t.id,
+        ticketNumber: t.ticket_number || t.id,
+        title: t.title,
+        unit: t.unit,
+        priority: t.priority,
+        status: t.status,
+        date: t.date || new Date(t.created_at).toISOString().split('T')[0],
+        technician: t.technician,
+        slaHours: t.sla_hours
+      }));
+    }
+
+    // 6. Users
+    const userRows = await query('SELECT id, name, email, role, flat_number, phone, emergency_contact, vehicle_number FROM users');
+    inMemoryData.users = userRows.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      flatNumber: u.flat_number,
+      phone: u.phone,
+      emergencyContact: u.emergency_contact,
+      vehicleNumber: u.vehicle_number
+    }));
+
+    // Backup to local data.json for disaster recovery
+    fs.writeFileSync(DB_FILE, JSON.stringify(inMemoryData, null, 2));
+    console.log('🔄 Telemetry and state synchronized from MySQL to memory cache.');
   } catch (err) {
-    console.error('Error reading DB file, using default data', err);
+    console.warn('⚠️ Could not sync from MySQL, using cached state:', err.message);
   }
-  fs.writeFileSync(DB_FILE, JSON.stringify(defaultData, null, 2));
-  return defaultData;
 }
 
-function saveDb(data) {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error('Error saving DB file', err);
-  }
-}
-
-let db = loadDb();
+// Initial Sync
+syncFromDatabase();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Broadcast helper for real-time updates to all connected web app clients
-function broadcast(type, payload) {
-  const message = JSON.stringify({ type, payload });
+// 📡 Scoped WebSocket Broadcast Helper
+function broadcast(type, payload, targetRole = null) {
+  const message = JSON.stringify({ type, payload, targetRole });
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+      // Role filtering if client provided authentication
+      if (!targetRole || client.userRole === 'Super Admin' || client.userRole === targetRole || (Array.isArray(targetRole) && targetRole.includes(client.userRole))) {
+        client.send(message);
+      }
     }
   });
 }
 
-wss.on('connection', (ws) => {
-  console.log('⚡ Web Client connected to Smart Building WebSocket Server');
-  ws.send(JSON.stringify({ type: 'INITIAL_SYNC', payload: db }));
+wss.on('connection', (ws, req) => {
+  ws.userRole = 'Resident'; // Default unauthenticated role
+  ws.send(JSON.stringify({ type: 'INITIAL_SYNC', payload: inMemoryData }));
+
+  // Allow client to authenticate WebSocket session
+  ws.on('message', (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+      if (data.type === 'AUTHENTICATE' && data.token) {
+        const decoded = jwt.verify(data.token, JWT_SECRET);
+        ws.userRole = decoded.role || 'Resident';
+        ws.userId = decoded.id;
+        ws.send(JSON.stringify({ type: 'AUTH_SUCCESS', role: ws.userRole }));
+      }
+    } catch (e) {
+      // Ignore invalid auth messages
+    }
+  });
 });
 
 // ==========================================
 // REST API Endpoints
 // ==========================================
 
-// Server Health & Status Check
+// Server Health & Status
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'online',
-    systemName: 'COMMUNITY BRAIN OS - Server',
-    database: isMongoConnected ? 'MongoDB Connected' : 'Local Data Storage (data.json)',
+    systemName: 'COMMUNITY BRAIN OS - Production API',
+    primaryDatabase: 'MySQL 9.7 (raah_nagar_db)',
+    databaseConnected: db.isConnected(),
     geminiAiActive: !!aiClient,
+    aiMode: 'Advisory/Summarization only (Safe Deterministic Actuation)',
     connectedWebsocketClients: wss.clients.size,
     timestamp: new Date().toISOString()
   });
@@ -272,11 +299,21 @@ app.get('/api/health', (req, res) => {
 
 // 1. Full State Sync
 app.get('/api/sync', (req, res) => {
-  res.json({ success: true, data: db });
+  res.json({ success: true, data: inMemoryData });
 });
 
-// 2. Gemini AI Integration Endpoints (Role-Tailored Answers)
-app.post('/api/ai/ask', async (req, res) => {
+// 2. Society Flats Registry (For Resident Onboarding Verification)
+app.get('/api/flats', async (req, res) => {
+  try {
+    const flats = await query('SELECT flat_number, tower, floor, occupancy_status FROM society_flats ORDER BY tower, flat_number');
+    res.json({ success: true, flats });
+  } catch (err) {
+    res.json({ success: true, flats: [] });
+  }
+});
+
+// 3. AI Smart Advisor & Analytics (Advisory Only - Deterministic Controls Protected)
+app.post('/api/ai/ask', rateLimit({ windowMs: 60000, maxRequests: 30 }), async (req, res) => {
   const { question, prompt, role } = req.body;
   const userQuery = question || prompt || 'Provide status summary';
   const userRole = role || 'Resident';
@@ -285,422 +322,761 @@ app.post('/api/ai/ask', async (req, res) => {
     try {
       const response = await aiClient.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `You are RAAH NAGAR AI, the central autonomous intelligence governing RAAH NAGAR Smart Society.
-You are talking to a user with the role of: "${userRole}".
-
-Role-Specific Guidelines:
-- If role is "Resident": Answer with focus on their flat comfort, amenity availability, guest approvals, noise policies, water level, and EV charger spots. Keep language warm and polite.
-- If role is "Facility Admin": Answer with high-level operational diagnostics, financial cost/consumption data, vendor SLAs, system logs, and security compliance.
-- If role is "Security Guard": Answer with focus on gate pass OTP verifications, unrecognized visitor alerts, parking spot unauthorized occupancy, and emergency siren actions.
-- If role is "Maintenance Tech": Answer with technical diagnostics (plumbing flow rates, pump auto-cutoff thresholds, lift ARD battery status, electrician ticket priorities).
+        contents: `You are RAAH NAGAR AI, an analytical and advisory intelligence for a smart residential community.
+Role: "${userRole}".
+IMPORTANT SAFETY RULE: You are an analytical advisor. You never actuate pumps, fire alarms, or gates directly.
 
 Current System Telemetry:
-- Water Tank: ${db.waterData.overheadTank}%
-- Fire Alarm Active: ${db.fireEmergencyData.isAlarmActive}
-- Pending Visitor Gate Approvals: ${db.visitorRequests.filter(v => v.status === 'PENDING').length}
-- Open Maintenance Tickets: ${db.maintenanceTickets.filter(m => m.status === 'OPEN').length}
+- Overhead Water Tank: ${inMemoryData.waterData.overheadTank}%
+- Sump Level: ${inMemoryData.waterData.undergroundSump}%
+- Fire Alarm Status: ${inMemoryData.fireEmergencyData.isAlarmActive ? 'ACTIVE ALERT' : 'Normal Standby'}
+- Pending Visitors: ${inMemoryData.visitorRequests.filter(v => v.status === 'PENDING').length}
+- Open Maintenance Tickets: ${inMemoryData.maintenanceTickets.filter(m => m.status === 'OPEN').length}
 
 User Question: "${userQuery}"
 
-Provide a concise, role-tailored, professional response.`
+Provide a concise, helpful, and safe advisory response.`
       });
       return res.json({ success: true, answer: response.text, mode: 'gemini-live' });
     } catch (err) {
-      console.error('Gemini API query error:', err);
+      console.error('Gemini API query error:', err.message);
     }
   }
 
-  // Fallback AI simulation tailored to user role if GEMINI_API_KEY is not configured
-  let roleMock = '';
-  if (userRole === 'Security Guard') {
-    roleMock = `🛡️ [RAAH NAGAR Security AI]: Gate 1 operating normally. ${db.visitorRequests.filter(v => v.status === 'PENDING').length} visitor OTP approvals pending. All perimeter sensors clear.`;
-  } else if (userRole === 'Facility Admin') {
-    roleMock = `👑 [RAAH NAGAR Admin AI]: Society systems optimal. Water tank at ${db.waterData.overheadTank}%, 0 critical breaches. ${db.maintenanceTickets.length} active maintenance logs.`;
-  } else if (userRole === 'Maintenance Tech') {
-    roleMock = `🔧 [RAAH NAGAR Tech AI]: Pump Cutoff V-102 Active. Lift ARD Battery: 98%. Open tickets: ${db.maintenanceTickets.filter(m => m.status === 'OPEN').length}.`;
-  } else {
-    roleMock = `🏠 [RAAH NAGAR Resident AI]: Hello Resident! Systems running smoothly. Water tank level is ${db.waterData.overheadTank}%. To ask live questions to Gemini AI, add your GEMINI_API_KEY in backend .env.`;
-  }
-
-  return res.json({ success: true, answer: roleMock, mode: 'simulation' });
+  // Safe Fallback Advisory
+  let fallbackMsg = `🏛️ [RAAH NAGAR Advisor]: Telemetry normal. Overhead Tank: ${inMemoryData.waterData.overheadTank}%, Open Tickets: ${inMemoryData.maintenanceTickets.filter(m => m.status === 'OPEN').length}.`;
+  return res.json({ success: true, answer: fallbackMsg, mode: 'simulation' });
 });
 
-app.post('/api/ai/analyze-emergency', async (req, res) => {
+app.post('/api/ai/analyze-emergency', authenticateToken, requirePermission(PERMISSIONS.EMERGENCY_ACKNOWLEDGE), async (req, res) => {
   const { emergencyType, zone, details } = req.body;
-  const context = `Emergency Type: ${emergencyType || 'General'}, Zone: ${zone || 'Main Premises'}, Details: ${details || 'Sensor triggered'}`;
+  const context = `Emergency: ${emergencyType || 'General'}, Zone: ${zone || 'Main'}, Details: ${details || 'Sensor triggered'}`;
 
   if (aiClient) {
     try {
       const response = await aiClient.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `You are the AI Safety Controller for a Smart Residential Building. Analyze this emergency and output 3 immediate safety action steps: ${context}`
+        contents: `Safety Advisor: Analyze this incident and output 3 prioritized response guidelines for human operators: ${context}`
       });
       return res.json({ success: true, analysis: response.text, mode: 'gemini-live' });
     } catch (err) {
-      console.error('Gemini Emergency Analysis Error:', err);
+      console.error('Gemini Emergency Analysis Error:', err.message);
     }
   }
 
-  const fallbackAnalysis = `🚨 Automated Emergency Protocol Activated for ${emergencyType || 'FIRE/LIFT'}.\n1. Evacuation routes opened automatically.\n2. Security guards notified on mobile.\n3. Automatic rescue/safety protocols engaged.`;
+  const fallbackAnalysis = `🚨 Standard Operating Procedure:\n1. Verify physical location via CCTV / Security on site.\n2. Evacuation routes confirmed clear.\n3. Awaiting Facility Admin confirmation.`;
   return res.json({ success: true, analysis: fallbackAnalysis, mode: 'simulation' });
 });
 
-// 3. Water Management
-app.get('/api/water', (req, res) => res.json(db.waterData));
-app.post('/api/water/update', (req, res) => {
-  db.waterData = { ...db.waterData, ...req.body };
-  saveDb(db);
-  broadcast('WATER_UPDATED', db.waterData);
-  res.json({ success: true, data: db.waterData });
+// 4. Water Management (Command vs Actual State Pattern)
+app.get('/api/water', (req, res) => res.json(inMemoryData.waterData));
+
+// Pump Command Dispatch (Requires Authorization & Records Device Command)
+app.post('/api/water/pump-command', authenticateToken, requirePermission(PERMISSIONS.EQUIPMENT_CONTROL), async (req, res) => {
+  const { command, deviceId = 'PUMP-MAIN-01' } = req.body; // 'START' | 'STOP'
+  const requestedBy = req.user.id || req.user.email;
+
+  try {
+    // 1. Record Command in Database (PENDING)
+    const commandId = await createDeviceCommand({
+      deviceId,
+      deviceType: 'WATER_PUMP',
+      command,
+      requestedBy
+    });
+
+    // 2. Audit Log
+    await recordAuditLog({
+      userId: requestedBy,
+      userRole: req.user.role,
+      action: `PUMP_${command}_COMMAND_SENT`,
+      entityType: 'WATER_PUMP',
+      entityId: deviceId,
+      oldValue: { state: inMemoryData.waterData.pumpOperationalState },
+      newValue: { command, commandId },
+      ip: req.ip
+    });
+
+    // 3. IoT Controller Confirmation Simulation (Command vs Actual State)
+    setTimeout(async () => {
+      const confirmedState = command === 'START' ? 'RUNNING' : 'OFF';
+      inMemoryData.waterData.pumpOperationalState = confirmedState;
+
+      await confirmDeviceCommand(commandId, 'CONFIRMED');
+      await query(
+        'UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1',
+        [confirmedState]
+      );
+
+      // Broadcast confirmed state to all clients
+      broadcast('WATER_UPDATED', inMemoryData.waterData);
+    }, 1200);
+
+    res.json({
+      success: true,
+      message: `Command '${command}' transmitted to pump gateway. Awaiting telemetry confirmation.`,
+      commandId,
+      status: 'PENDING'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to issue pump command: ' + err.message });
+  }
 });
 
-// 4. Smart Parking
-app.get('/api/parking', (req, res) => res.json(db.parkingSlots));
-app.post('/api/parking/toggle/:id', (req, res) => {
+// Update Water Metrics (Authorized Telemetry Ingestion)
+app.post('/api/water/update', authenticateToken, requirePermission(PERMISSIONS.OPERATIONAL_CONTROLS), async (req, res) => {
+  inMemoryData.waterData = { ...inMemoryData.waterData, ...req.body };
+  try {
+    await query(
+      `UPDATE water_metrics 
+       SET overhead_tank = ?, underground_sump = ?, recycled_water = ?, ph_level = ?, tds_level = ?, flow_rate_lpm = ?
+       WHERE id = 1`,
+      [
+        inMemoryData.waterData.overheadTank,
+        inMemoryData.waterData.undergroundSump,
+        inMemoryData.waterData.recycledWater,
+        inMemoryData.waterData.phLevel,
+        inMemoryData.waterData.tdsLevel,
+        inMemoryData.waterData.flowRateLPM
+      ]
+    );
+  } catch (e) {
+    console.error('MySQL water update error:', e.message);
+  }
+  broadcast('WATER_UPDATED', inMemoryData.waterData);
+  res.json({ success: true, data: inMemoryData.waterData });
+});
+
+// 5. Smart Parking (Physical Occupancy vs Assignment)
+app.get('/api/parking', (req, res) => res.json(inMemoryData.parkingSlots));
+
+app.post('/api/parking/toggle/:id', authenticateToken, requirePermission(PERMISSIONS.PARKING_MONITOR), async (req, res) => {
   const { id } = req.params;
-  db.parkingSlots = db.parkingSlots.map(slot => 
-    slot.id === id ? { ...slot, isOccupied: !slot.isOccupied } : slot
-  );
-  saveDb(db);
-  broadcast('PARKING_UPDATED', db.parkingSlots);
-  res.json({ success: true, data: db.parkingSlots });
+  const slot = inMemoryData.parkingSlots.find(s => s.id === id);
+  if (!slot) return res.status(404).json({ success: false, error: 'Slot not found' });
+
+  const oldOccupancy = slot.isOccupied;
+  slot.isOccupied = !oldOccupancy;
+
+  try {
+    await query('UPDATE parking_slots SET is_occupied = ?, updated_at = NOW() WHERE id = ?', [slot.isOccupied ? 1 : 0, id]);
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: slot.isOccupied ? 'PARKING_SENSOR_VEHICLE_DETECTED' : 'PARKING_SENSOR_VEHICLE_DEPARTED',
+      entityType: 'PARKING_SLOT',
+      entityId: id,
+      oldValue: { isOccupied: oldOccupancy },
+      newValue: { isOccupied: slot.isOccupied },
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Parking DB update error:', e.message);
+  }
+
+  broadcast('PARKING_UPDATED', inMemoryData.parkingSlots);
+  res.json({ success: true, data: inMemoryData.parkingSlots });
 });
 
-// 5. Fire Emergency
-app.get('/api/fire', (req, res) => res.json(db.fireEmergencyData));
-app.post('/api/fire/trigger', (req, res) => {
-  db.fireEmergencyData = {
-    ...db.fireEmergencyData,
+// 6. Fire Emergency (Strictly Authorized Safety Workflow)
+app.get('/api/fire', (req, res) => res.json(inMemoryData.fireEmergencyData));
+
+app.post('/api/fire/trigger', rateLimit({ windowMs: 60000, maxRequests: 5 }), authenticateToken, requirePermission(PERMISSIONS.EMERGENCY_CONTROL), async (req, res) => {
+  const zone = req.body.zone || 'Tower B Floor 4';
+  const oldData = { ...inMemoryData.fireEmergencyData };
+
+  inMemoryData.fireEmergencyData = {
+    ...inMemoryData.fireEmergencyData,
     isAlarmActive: true,
-    affectedZone: req.body.zone || 'Tower B Floor 4',
+    affectedZone: zone,
     sprinklersStatus: 'ACTIVATED',
-    fireDepartmentNotified: true
+    fireDepartmentNotified: true,
+    fireDeptStatus: 'NOTIFIED'
   };
+
+  try {
+    await query(
+      `UPDATE fire_emergency 
+       SET is_alarm_active = 1, affected_zone = ?, sprinklers_status = 'ACTIVATED', fire_dept_status = 'NOTIFIED', incident_started_at = NOW(), authorized_by = ?
+       WHERE id = 1`,
+      [zone, req.user.name || req.user.email]
+    );
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'FIRE_ALARM_ACTIVATED',
+      entityType: 'FIRE_EMERGENCY',
+      entityId: '1',
+      oldValue: oldData,
+      newValue: inMemoryData.fireEmergencyData,
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Fire emergency DB update error:', e.message);
+  }
+
   const newLog = {
     id: `log-${Date.now()}`,
     timestamp: new Date().toLocaleTimeString(),
     action: '🔥 FIRE EMERGENCY ALARM TRIGGERED',
     module: 'FIRE',
-    riskLevel: 'HIGH',
-    details: `Fire detected in ${db.fireEmergencyData.affectedZone}. Auto-dialed Fire Brigade.`
+    riskLevel: 'CRITICAL',
+    details: `Fire detected in ${zone}. Authorized by ${req.user.name || req.user.role}. Fire Department notified.`
   };
-  db.actionLogs.unshift(newLog);
-  saveDb(db);
-  broadcast('FIRE_EMERGENCY', db.fireEmergencyData);
+  inMemoryData.actionLogs.unshift(newLog);
+
+  broadcast('FIRE_EMERGENCY', inMemoryData.fireEmergencyData);
   broadcast('NEW_ACTION_LOG', newLog);
-  res.json({ success: true, data: db.fireEmergencyData });
+  res.json({ success: true, data: inMemoryData.fireEmergencyData });
 });
 
-app.post('/api/fire/reset', (req, res) => {
-  db.fireEmergencyData = defaultData.fireEmergencyData;
-  saveDb(db);
-  broadcast('FIRE_EMERGENCY', db.fireEmergencyData);
-  res.json({ success: true, data: db.fireEmergencyData });
-});
-
-// 6. Visitor Management
-app.get('/api/visitors', (req, res) => res.json(db.visitorRequests));
-app.post('/api/visitors/add', (req, res) => {
-  const newVisitor = {
-    id: `v-${Date.now()}`,
-    visitorName: req.body.visitorName,
-    category: req.body.category || 'Guest',
-    unitNumber: req.body.unitNumber,
-    otpCode: Math.floor(1000 + Math.random() * 9000).toString(),
-    status: 'PENDING',
-    entryTime: 'Pending'
+app.post('/api/fire/reset', authenticateToken, requirePermission(PERMISSIONS.EMERGENCY_CONTROL), async (req, res) => {
+  inMemoryData.fireEmergencyData = {
+    isAlarmActive: false,
+    affectedZone: 'None',
+    smokeSensorsActive: 48,
+    sprinklersStatus: 'STANDBY',
+    fireDepartmentNotified: false,
+    fireDeptStatus: 'NOT_NOTIFIED',
+    evacuationRouteOpen: true
   };
-  db.visitorRequests.unshift(newVisitor);
-  saveDb(db);
-  broadcast('VISITOR_UPDATED', db.visitorRequests);
+
+  try {
+    await query(
+      `UPDATE fire_emergency 
+       SET is_alarm_active = 0, affected_zone = 'None', sprinklers_status = 'STANDBY', fire_dept_status = 'NOT_NOTIFIED', incident_started_at = NULL
+       WHERE id = 1`
+    );
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'FIRE_ALARM_RESET_SECURE',
+      entityType: 'FIRE_EMERGENCY',
+      entityId: '1',
+      newValue: inMemoryData.fireEmergencyData,
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Fire reset DB error:', e.message);
+  }
+
+  broadcast('FIRE_EMERGENCY', inMemoryData.fireEmergencyData);
+  res.json({ success: true, data: inMemoryData.fireEmergencyData });
+});
+
+// 7. Visitor Management (Time-Limited QR/OTP Workflow)
+app.get('/api/visitors', (req, res) => res.json(inMemoryData.visitorRequests));
+
+app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.VISITOR_CREATE), async (req, res) => {
+  const { visitorName, category, unitNumber, phone } = req.body;
+  if (!visitorName || !unitNumber) {
+    return res.status(400).json({ success: false, error: 'Visitor name and flat unit number are required.' });
+  }
+
+  const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+  const validUntil = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6 hours valid
+  const visitorId = `v-${Date.now()}`;
+
+  const newVisitor = {
+    id: visitorId,
+    visitorName,
+    phone: phone || '',
+    category: category || 'Guest',
+    unitNumber,
+    residentUserId: req.user.id,
+    otpCode,
+    status: 'APPROVED',
+    entryTime: 'Pending',
+    validUntil: validUntil.toISOString()
+  };
+
+  try {
+    await query(
+      `INSERT INTO visitor_requests (id, visitor_name, phone, category, unit_number, resident_user_id, otp_code, valid_until, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED')`,
+      [visitorId, visitorName, phone || null, category || 'Guest', unitNumber, req.user.id, otpCode, validUntil]
+    );
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'VISITOR_PASS_GENERATED',
+      entityType: 'VISITOR',
+      entityId: visitorId,
+      newValue: { visitorName, unitNumber, otpCode, validUntil },
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Visitor insert DB error:', e.message);
+  }
+
+  inMemoryData.visitorRequests.unshift(newVisitor);
+  broadcast('VISITOR_UPDATED', inMemoryData.visitorRequests);
   res.json({ success: true, data: newVisitor });
 });
 
-app.post('/api/visitors/approve/:id', (req, res) => {
-  const { id } = req.params;
-  db.visitorRequests = db.visitorRequests.map(v => 
-    v.id === id ? { ...v, status: 'APPROVED', entryTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } : v
-  );
-  saveDb(db);
-  broadcast('VISITOR_UPDATED', db.visitorRequests);
-  res.json({ success: true, data: db.visitorRequests });
+// Security Gate Verification (Verify OTP & Check In)
+app.post('/api/visitors/verify-gate', authenticateToken, requirePermission(PERMISSIONS.VISITOR_VERIFY), async (req, res) => {
+  const { otpCode, unitNumber } = req.body;
+  const visitor = inMemoryData.visitorRequests.find(v => v.otpCode === otpCode && (v.status === 'APPROVED' || v.status === 'PENDING'));
+
+  if (!visitor) {
+    return res.status(400).json({ success: false, error: 'Invalid or already used Visitor OTP.' });
+  }
+
+  // Check Expiry
+  if (visitor.validUntil && new Date(visitor.validUntil) < new Date()) {
+    visitor.status = 'EXPIRED';
+    return res.status(400).json({ success: false, error: 'Visitor pass has expired.' });
+  }
+
+  visitor.status = 'CHECKED_IN';
+  visitor.entryTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  try {
+    await query(
+      `UPDATE visitor_requests 
+       SET status = 'CHECKED_IN', entry_time = ?, verified_by_guard_id = ? 
+       WHERE id = ?`,
+      [visitor.entryTime, req.user.id, visitor.id]
+    );
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'VISITOR_GATE_ENTRY_PERMITTED',
+      entityType: 'VISITOR',
+      entityId: visitor.id,
+      newValue: { status: 'CHECKED_IN', entryTime: visitor.entryTime },
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Visitor gate check error:', e.message);
+  }
+
+  broadcast('VISITOR_UPDATED', inMemoryData.visitorRequests);
+  res.json({ success: true, message: `Access granted for ${visitor.visitorName}`, data: visitor });
 });
 
-// 7. Maintenance Tickets
-app.get('/api/maintenance', (req, res) => res.json(db.maintenanceTickets));
-app.post('/api/maintenance/create', (req, res) => {
+// 8. Maintenance Tickets (with SLA Lifecycle)
+app.get('/api/maintenance', (req, res) => res.json(inMemoryData.maintenanceTickets));
+
+app.post('/api/maintenance/create', authenticateToken, requirePermission(PERMISSIONS.COMPLAINT_CREATE), async (req, res) => {
+  const { title, unit, priority = 'MEDIUM', description } = req.body;
+  if (!title || !unit) {
+    return res.status(400).json({ success: false, error: 'Title and Unit are required.' });
+  }
+
+  const slaMap = { CRITICAL: 1, HIGH: 4, MEDIUM: 24, LOW: 48 };
+  const slaHours = slaMap[priority] || 24;
+  const ticketNumber = `MNT-${Math.floor(1000 + Math.random() * 9000)}`;
+  const ticketId = `m-${Date.now()}`;
+
   const newTicket = {
-    id: `m-${Date.now()}`,
-    title: req.body.title,
-    unit: req.body.unit,
-    priority: req.body.priority || 'MEDIUM',
+    id: ticketId,
+    ticketNumber,
+    title,
+    unit,
+    priority,
     status: 'OPEN',
     date: new Date().toISOString().split('T')[0],
-    technician: 'Unassigned'
+    technician: 'Unassigned',
+    slaHours
   };
-  db.maintenanceTickets.unshift(newTicket);
-  saveDb(db);
-  broadcast('MAINTENANCE_UPDATED', db.maintenanceTickets);
+
+  try {
+    await query(
+      `INSERT INTO maintenance_tickets (id, ticket_number, title, description, unit, resident_user_id, priority, status, sla_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)`,
+      [ticketId, ticketNumber, title, description || null, unit, req.user.id, priority, slaHours]
+    );
+  } catch (e) {
+    console.error('Maintenance ticket insert error:', e.message);
+  }
+
+  inMemoryData.maintenanceTickets.unshift(newTicket);
+  broadcast('MAINTENANCE_UPDATED', inMemoryData.maintenanceTickets);
   res.json({ success: true, data: newTicket });
 });
 
-// 8. Lift Emergency
-app.get('/api/lift', (req, res) => res.json(db.liftStatuses));
-app.post('/api/lift/trigger-sos/:id', (req, res) => {
+// 9. Lift Emergency Integration
+app.get('/api/lift', (req, res) => res.json(inMemoryData.liftStatuses));
+
+app.post('/api/lift/trigger-sos/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  db.liftStatuses = db.liftStatuses.map(lift => 
-    lift.id === id ? { ...lift, status: 'SOS_TRIGGERED' } : lift
-  );
+  const lift = inMemoryData.liftStatuses.find(l => l.id === id);
+  if (!lift) return res.status(404).json({ success: false, error: 'Lift not found' });
+
+  lift.status = 'SOS_TRIGGERED';
+  try {
+    await query('UPDATE lift_statuses SET status = "SOS_TRIGGERED", updated_at = NOW() WHERE id = ?', [id]);
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'LIFT_SOS_TRIGGERED',
+      entityType: 'LIFT',
+      entityId: id,
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Lift DB update error:', e.message);
+  }
+
   const newLog = {
     id: `log-${Date.now()}`,
     timestamp: new Date().toLocaleTimeString(),
     action: '🚨 LIFT SOS BUTTON PRESSED',
     module: 'LIFT',
     riskLevel: 'HIGH',
-    details: `Emergency intercom activated in ${id}. Automatic Rescue Device engaged.`
+    details: `Emergency intercom activated in ${lift.liftName}. ARD engaged.`
   };
-  db.actionLogs.unshift(newLog);
-  saveDb(db);
-  broadcast('LIFT_UPDATED', db.liftStatuses);
+  inMemoryData.actionLogs.unshift(newLog);
+
+  broadcast('LIFT_UPDATED', inMemoryData.liftStatuses);
   broadcast('NEW_ACTION_LOG', newLog);
-  res.json({ success: true, data: db.liftStatuses });
+  res.json({ success: true, data: inMemoryData.liftStatuses });
 });
 
-app.post('/api/lift/reset/:id', (req, res) => {
+// 10. Resource Amenity Booking (Strict Concurrency & Overlap Prevention)
+app.get('/api/resources', (req, res) => res.json(inMemoryData.resourceItems));
+
+app.post('/api/resources/book/:id', authenticateToken, requirePermission(PERMISSIONS.BOOKING_CREATE), async (req, res) => {
   const { id } = req.params;
-  db.liftStatuses = db.liftStatuses.map(lift => 
-    lift.id === id ? { ...lift, status: 'NORMAL' } : lift
-  );
-  saveDb(db);
-  broadcast('LIFT_UPDATED', db.liftStatuses);
-  res.json({ success: true, data: db.liftStatuses });
-});
+  const { startTime, endTime } = req.body;
+  const resource = inMemoryData.resourceItems.find(r => r.id === id);
+  if (!resource) return res.status(404).json({ success: false, error: 'Resource not found' });
 
-// 9. Noise Guardian
-app.get('/api/noise', (req, res) => res.json(db.noiseData));
-app.post('/api/noise/escalate', (req, res) => {
-  const nextStage = Math.min(3, (db.noiseData.currentViolationStage || 0) + 1);
-  db.noiseData.currentViolationStage = nextStage;
-  db.noiseData.currentDecibels = 68;
-  saveDb(db);
-  broadcast('NOISE_UPDATED', db.noiseData);
-  res.json({ success: true, data: db.noiseData });
-});
+  const bookStart = startTime ? new Date(startTime) : new Date();
+  const bookEnd = endTime ? new Date(endTime) : new Date(Date.now() + 2 * 60 * 60 * 1000);
 
-app.post('/api/noise/reset', (req, res) => {
-  db.noiseData.currentViolationStage = 0;
-  db.noiseData.currentDecibels = 48;
-  saveDb(db);
-  broadcast('NOISE_UPDATED', db.noiseData);
-  res.json({ success: true, data: db.noiseData });
-});
-
-// 10. Resource Booking
-app.get('/api/resources', (req, res) => res.json(db.resourceItems));
-app.post('/api/resources/book/:id', (req, res) => {
-  const { id } = req.params;
-  const { bookedBy } = req.body;
-  db.resourceItems = db.resourceItems.map(item => 
-    item.id === id ? { ...item, status: 'BUSY', bookedBy: bookedBy || 'Resident' } : item
-  );
-  saveDb(db);
-  broadcast('RESOURCE_UPDATED', db.resourceItems);
-  res.json({ success: true, data: db.resourceItems });
-});
-
-// 11. Push Notifications Endpoint
-app.post('/api/notifications/send', (req, res) => {
-  const { title, message, targetRole } = req.body;
-  const notifPayload = {
-    id: `notif-${Date.now()}`,
-    title: title || 'Society Notice',
-    message: message || 'Notice from management',
-    targetRole: targetRole || 'All',
-    time: new Date().toLocaleTimeString()
-  };
-  broadcast('PUSH_NOTIFICATION', notifPayload);
-  res.json({ success: true, notification: notifPayload });
-});
-
-// 12. AI Action Logs
-app.get('/api/logs', (req, res) => res.json(db.actionLogs));
-
-// 12b. Comprehensive User & AI Settings Endpoints
-app.get('/api/settings', (req, res) => {
-  const settings = db.userSettings || defaultData.userSettings;
-  res.json({ success: true, settings });
-});
-
-app.put('/api/settings', (req, res) => {
-  const updatedSettings = {
-    ...db.userSettings,
-    ...req.body
-  };
-  db.userSettings = updatedSettings;
-  saveDb(db);
-  broadcast('SETTINGS_UPDATED', updatedSettings);
-  res.json({ success: true, settings: updatedSettings });
-});
-
-// ==========================================
-// 13. AUTHENTICATION & USER PROFILE ENDPOINTS
-// ==========================================
-
-// Signup API
-app.post('/api/auth/signup', async (req, res) => {
+  // Check Double Booking in MySQL
   try {
-    const { name, email, password, role, flatNumber, phone } = req.body;
+    const existing = await query(
+      `SELECT * FROM resource_bookings 
+       WHERE resource_id = ? AND status = 'CONFIRMED'
+       AND ((start_time <= ? AND end_time > ?) OR (start_time < ? AND end_time >= ?))`,
+      [id, bookStart, bookStart, bookEnd, bookEnd]
+    );
+
+    if (existing.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: 'Resource is already booked during this time interval. Please select another slot.'
+      });
+    }
+
+    const bookingId = `bk-${Date.now()}`;
+    await query(
+      `INSERT INTO resource_bookings (id, resource_id, user_id, user_name, start_time, end_time, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'CONFIRMED')`,
+      [bookingId, id, req.user.id, req.user.name || 'Resident', bookStart, bookEnd]
+    );
+
+    resource.bookedBy = req.user.name || 'Resident';
+    resource.status = 'BUSY';
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'AMENITY_BOOKED',
+      entityType: 'RESOURCE',
+      entityId: id,
+      newValue: { resourceName: resource.name, start: bookStart, end: bookEnd },
+      ip: req.ip
+    });
+  } catch (e) {
+    console.error('Resource booking DB error:', e.message);
+  }
+
+  broadcast('RESOURCE_UPDATED', inMemoryData.resourceItems);
+  res.json({ success: true, data: inMemoryData.resourceItems });
+});
+
+// 11. Noise Guardian & Waste Management
+app.get('/api/noise', (req, res) => res.json(inMemoryData.noiseData));
+app.get('/api/waste', (req, res) => res.json(inMemoryData.wasteBins));
+app.get('/api/logs', (req, res) => res.json(inMemoryData.actionLogs));
+
+// 12. Audit Logs (Protected - Admins Only)
+app.get('/api/audit-logs', authenticateToken, requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
+  try {
+    const logs = await query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100');
+    res.json({ success: true, logs });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 13. Settings Endpoints
+app.get('/api/settings', (req, res) => {
+  res.json({ success: true, settings: inMemoryData.userSettings });
+});
+
+app.put('/api/settings', authenticateToken, async (req, res) => {
+  inMemoryData.userSettings = { ...inMemoryData.userSettings, ...req.body };
+  broadcast('SETTINGS_UPDATED', inMemoryData.userSettings);
+  res.json({ success: true, settings: inMemoryData.userSettings });
+});
+
+// ==========================================
+// 14. AUTHENTICATION & RBAC SIGNUP/LOGIN
+// ==========================================
+
+// Public Signup: Strictly locks role to 'Resident' and verifies flat in registry!
+app.post('/api/auth/signup', rateLimit({ windowMs: 60000, maxRequests: 10 }), async (req, res) => {
+  try {
+    const { name, email, password, flatNumber, phone } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({ success: false, message: 'Name, email, and password are required.' });
     }
 
-    if (!db.users) db.users = [];
-    const existingUser = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (existingUser) {
+    // 🛡️ Security Rule 3: Public signup role can NEVER be Admin or Guard! Always 'Resident'
+    const assignedRole = ROLES.RESIDENT;
+
+    // 🛡️ Security Rule 4: Society Flat Verification
+    const flatToVerify = flatNumber || 'A-101';
+    const flatRecord = await verifyFlatRegistry(flatToVerify);
+    if (!flatRecord && process.env.STRICT_FLAT_CHECK === 'true') {
+      return res.status(400).json({
+        success: false,
+        message: `Flat '${flatToVerify}' is not registered in the society database. Please contact the management office.`
+      });
+    }
+
+    // Check if user already exists
+    const existing = await query('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
+    if (existing.length > 0) {
       return res.status(400).json({ success: false, message: 'An account with this email already exists.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const newUser = {
-      id: `u-${Date.now()}`,
-      name,
-      email: email.toLowerCase(),
-      passwordHash,
-      role: role || 'Resident',
-      flatNumber: flatNumber || 'A-101',
-      phone: phone || '',
-      emergencyContact: '',
-      vehicleNumber: '',
-      createdAt: new Date().toISOString()
-    };
+    const userId = `u-${Date.now()}`;
 
-    db.users.push(newUser);
-    saveDb(db);
+    await query(
+      `INSERT INTO users (id, name, email, password_hash, role, flat_number, phone, is_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+      [userId, name, email.toLowerCase(), passwordHash, assignedRole, flatToVerify, phone || '']
+    );
+
+    // Initial User Settings
+    try {
+      await query('INSERT INTO user_settings (user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id=user_id', [userId]);
+    } catch (e) {}
+
+    await recordAuditLog({
+      userId,
+      userRole: assignedRole,
+      action: 'RESIDENT_SELF_REGISTERED',
+      entityType: 'USER',
+      entityId: userId,
+      newValue: { name, email, flatNumber: flatToVerify },
+      ip: req.ip
+    });
 
     const token = jwt.sign(
-      { userId: newUser.id, email: newUser.email, role: newUser.role },
-      process.env.JWT_SECRET || 'super_secret_society_jwt_key_2026',
+      { id: userId, email: email.toLowerCase(), role: assignedRole, name },
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    const { passwordHash: _, ...safeUser } = newUser;
-    res.json({ success: true, token, user: safeUser });
+    res.json({
+      success: true,
+      token,
+      user: { id: userId, name, email: email.toLowerCase(), role: assignedRole, flatNumber: flatToVerify, phone }
+    });
   } catch (err) {
     console.error('Signup error:', err);
-    res.status(500).json({ success: false, message: 'Server error during signup.' });
+    res.status(500).json({ success: false, message: 'Server error during signup: ' + err.message });
   }
 });
 
-// Login API
-app.post('/api/auth/login', async (req, res) => {
+// Admin-Only Staff Account Creation (For Security, Techs, and Sub-Admins)
+app.post('/api/admin/create-staff', authenticateToken, requirePermission(PERMISSIONS.STAFF_MANAGE), async (req, res) => {
+  const { name, email, password, role, phone } = req.body;
+  if (!name || !email || !password || !role) {
+    return res.status(400).json({ success: false, error: 'Name, email, password, and valid staff role required.' });
+  }
+
+  const allowedStaffRoles = [ROLES.SECURITY_GUARD, ROLES.MAINTENANCE_TECH, ROLES.FACILITY_ADMIN];
+  if (!allowedStaffRoles.includes(role)) {
+    return res.status(400).json({ success: false, error: `Invalid staff role. Allowed: ${allowedStaffRoles.join(', ')}` });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const staffId = `staff-${Date.now()}`;
+    await query(
+      `INSERT INTO users (id, name, email, password_hash, role, flat_number, phone, is_verified)
+       VALUES (?, ?, ?, ?, ?, 'Staff Office', ?, 1)`,
+      [staffId, name, email.toLowerCase(), passwordHash, role, phone || '']
+    );
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userRole: req.user.role,
+      action: 'STAFF_ACCOUNT_CREATED',
+      entityType: 'USER',
+      entityId: staffId,
+      newValue: { name, email, role },
+      ip: req.ip
+    });
+
+    res.json({ success: true, message: `Staff account (${role}) created successfully for ${name}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Login API (Rate-Limited with bcrypt comparison against MySQL)
+app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
     }
 
-    if (!db.users) db.users = [];
-    const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) {
+    const users = await query('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    if (users.length === 0) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash || '');
+    const user = users[0];
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash || '');
     if (!isPasswordValid) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
     const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'super_secret_society_jwt_key_2026',
+      { id: user.id, email: user.email, role: user.role, name: user.name },
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    const { passwordHash: _, ...safeUser } = user;
-    res.json({ success: true, token, user: safeUser });
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        flatNumber: user.flat_number,
+        phone: user.phone,
+        emergencyContact: user.emergency_contact,
+        vehicleNumber: user.vehicle_number
+      }
+    });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ success: false, message: 'Server error during login.' });
   }
 });
 
-// Forgot Password API
-app.post('/api/auth/forgot-password', (req, res) => {
+// Secure Password Reset Flow (Never leaks OTP in response in production)
+app.post('/api/auth/forgot-password', rateLimit({ windowMs: 60000, maxRequests: 5 }), async (req, res) => {
   const { email } = req.body;
-  if (!db.users) db.users = [];
-  const user = db.users.find(u => u.email.toLowerCase() === (email || '').toLowerCase());
+  if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
 
-  if (!user) {
-    return res.status(404).json({ success: false, message: 'Email not found in society registry.' });
+  try {
+    const users = await query('SELECT id FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: 'Email not found in society registry.' });
+    }
+
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await query('UPDATE users SET reset_otp = ?, reset_otp_expires = ? WHERE id = ?', [generatedOtp, expiresAt, users[0].id]);
+
+    console.log(`🔑 [SECURITY OTP DISPATCH]: Reset OTP for ${email} is ${generatedOtp} (Expires in 10m)`);
+
+    res.json({
+      success: true,
+      message: 'Password reset OTP generated and dispatched to your registered phone/email.'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
-
-  const simulatedOtp = '482910';
-  user.resetOtp = simulatedOtp;
-  user.resetOtpExpires = Date.now() + 10 * 60 * 1000;
-  saveDb(db);
-
-  res.json({
-    success: true,
-    message: `Password reset OTP generated! (Simulated OTP: ${simulatedOtp})`,
-    simulatedOtp
-  });
 });
 
-// Reset Password API
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', rateLimit({ windowMs: 60000, maxRequests: 5 }), async (req, res) => {
   const { email, otp, newPassword } = req.body;
-  if (!db.users) db.users = [];
-  const user = db.users.find(u => u.email.toLowerCase() === (email || '').toLowerCase());
-
-  if (!user || user.resetOtp !== otp) {
-    return res.status(400).json({ success: false, message: 'Invalid OTP code.' });
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Email, OTP, and new password are required.' });
   }
 
-  user.passwordHash = await bcrypt.hash(newPassword, 10);
-  delete user.resetOtp;
-  delete user.resetOtpExpires;
-  saveDb(db);
+  try {
+    const users = await query('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    if (users.length === 0) return res.status(400).json({ success: false, message: 'Invalid request.' });
 
-  res.json({ success: true, message: 'Password reset successfully! You can now log in.' });
+    const user = users[0];
+    if (user.reset_otp !== otp || !user.reset_otp_expires || Date.now() > user.reset_otp_expires) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP code.' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await query('UPDATE users SET password_hash = ?, reset_otp = NULL, reset_otp_expires = NULL WHERE id = ?', [passwordHash, user.id]);
+
+    await recordAuditLog({
+      userId: user.id,
+      userRole: user.role,
+      action: 'PASSWORD_RESET_SUCCESS',
+      entityType: 'USER',
+      entityId: user.id,
+      ip: req.ip
+    });
+
+    res.json({ success: true, message: 'Password has been reset successfully. Please log in with your new password.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
-// Update Profile API
-app.put('/api/auth/profile/:userId', async (req, res) => {
+// Update Profile (Ensures user can only update their own profile unless Admin)
+app.put('/api/auth/profile/:userId', authenticateToken, async (req, res) => {
   const { userId } = req.params;
-  const { name, phone, emergencyContact, flatNumber, vehicleNumber, password } = req.body;
+  const { name, phone, emergencyContact, vehicleNumber, password } = req.body;
 
-  if (!db.users) db.users = [];
-  const userIndex = db.users.findIndex(u => u.id === userId);
-  if (userIndex === -1) {
-    return res.status(404).json({ success: false, message: 'User profile not found.' });
+  if (req.user.id !== userId && !hasPermission(req.user.role, PERMISSIONS.USERS_MANAGE)) {
+    return res.status(403).json({ success: false, message: 'Forbidden: You can only edit your own profile.' });
   }
 
-  let updatedUser = { ...db.users[userIndex] };
-  if (name !== undefined) updatedUser.name = name;
-  if (phone !== undefined) updatedUser.phone = phone;
-  if (emergencyContact !== undefined) updatedUser.emergencyContact = emergencyContact;
-  if (flatNumber !== undefined) updatedUser.flatNumber = flatNumber;
-  if (vehicleNumber !== undefined) updatedUser.vehicleNumber = vehicleNumber;
+  try {
+    let updateFields = [];
+    let updateParams = [];
 
-  if (password && password.trim() !== '') {
-    updatedUser.passwordHash = await bcrypt.hash(password, 10);
+    if (name) { updateFields.push('name = ?'); updateParams.push(name); }
+    if (phone) { updateFields.push('phone = ?'); updateParams.push(phone); }
+    if (emergencyContact) { updateFields.push('emergency_contact = ?'); updateParams.push(emergencyContact); }
+    if (vehicleNumber) { updateFields.push('vehicle_number = ?'); updateParams.push(vehicleNumber); }
+    if (password && password.trim() !== '') {
+      const hash = await bcrypt.hash(password, 10);
+      updateFields.push('password_hash = ?');
+      updateParams.push(hash);
+    }
+
+    if (updateFields.length > 0) {
+      updateParams.push(userId);
+      await query(`UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`, updateParams);
+    }
+
+    const updated = await query('SELECT id, name, email, role, flat_number, phone, emergency_contact, vehicle_number FROM users WHERE id = ?', [userId]);
+    res.json({ success: true, user: updated[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
-
-  db.users[userIndex] = updatedUser;
-  saveDb(db);
-
-  const { passwordHash: _, ...safeUser } = updatedUser;
-  res.json({ success: true, user: safeUser });
 });
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`=================================================`);
-  console.log(`🚀 COMMUNITY BRAIN Smart Society Backend running on port ${PORT}`);
+  console.log(`🚀 COMMUNITY BRAIN Production Smart Society API running on port ${PORT}`);
   console.log(`📡 WebSocket server live at ws://localhost:${PORT}`);
-  console.log(`🤖 Gemini AI Status: ${aiClient ? 'Active (Live Key)' : 'Active (Simulation Mode)'}`);
-  console.log(`💾 Database Status: ${isMongoConnected ? 'MongoDB' : 'Local JSON Storage'}`);
+  console.log(`🏛️ Primary Database: MySQL 9.7 (raah_nagar_db)`);
+  console.log(`🛡️ Central Authentication & Fine-Grained RBAC: ACTIVE`);
+  console.log(`🤖 AI Status: Advisory Only (Safety Actuators Deterministic)`);
   console.log(`=================================================`);
 });

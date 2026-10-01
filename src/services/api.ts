@@ -14,10 +14,23 @@ export interface BackendDataSync {
   actionLogs: any[];
 }
 
+// 🔐 Helper to attach JWT Bearer Token to all protected requests
+function getAuthHeaders(extraHeaders: Record<string, string> = {}) {
+  const token = localStorage.getItem('rn_auth_token') || sessionStorage.getItem('rn_auth_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...extraHeaders
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 // REST API Methods
 export async function fetchFullSync(): Promise<BackendDataSync | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/sync`);
+    const res = await fetch(`${API_BASE_URL}/sync`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     const json = await res.json();
     return json.data;
@@ -27,88 +40,202 @@ export async function fetchFullSync(): Promise<BackendDataSync | null> {
   }
 }
 
+// 🏢 Fetch Society Flats Registry
+export async function fetchFlats() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/flats`);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.flats || [];
+  } catch (err) {
+    console.warn('Could not fetch flats registry:', err);
+    return [];
+  }
+}
+
+// 🚰 Water Pump Command (Command vs Actual State Pattern)
+export async function sendPumpCommand(command: 'START' | 'STOP', deviceId?: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/water/pump-command`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ command, deviceId })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Error sending pump command:', err);
+    return { success: false, error: 'Network error communicating with pump controller.' };
+  }
+}
+
+// 🔥 Fire Emergency Trigger (Authorized Admins & Operators)
 export async function triggerFireEmergency(zone?: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/fire/trigger`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ zone })
     });
     return await res.json();
   } catch (err) {
     console.error('Error triggering fire emergency API:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
 export async function resetFireEmergency() {
   try {
-    const res = await fetch(`${API_BASE_URL}/fire/reset`, { method: 'POST' });
+    const res = await fetch(`${API_BASE_URL}/fire/reset`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     return await res.json();
   } catch (err) {
     console.error('Error resetting fire emergency API:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
+// 🚗 Smart Parking Slot Toggle
 export async function toggleParkingSlot(id: string) {
   try {
-    const res = await fetch(`${API_BASE_URL}/parking/toggle/${id}`, { method: 'POST' });
+    const res = await fetch(`${API_BASE_URL}/parking/toggle/${id}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     return await res.json();
   } catch (err) {
     console.error('Error toggling parking slot:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
-export async function addVisitor(visitorName: string, unitNumber: string, category: string) {
+// 🚪 Visitor Management
+export async function addVisitor(visitorName: string, unitNumber: string, category: string, phone?: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/visitors/add`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ visitorName, unitNumber, category })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ visitorName, unitNumber, category, phone })
     });
     return await res.json();
   } catch (err) {
     console.error('Error adding visitor:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
 export async function approveVisitor(id: string) {
   try {
-    const res = await fetch(`${API_BASE_URL}/visitors/approve/${id}`, { method: 'POST' });
+    const res = await fetch(`${API_BASE_URL}/visitors/approve/${id}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     return await res.json();
   } catch (err) {
     console.error('Error approving visitor:', err);
-  }
-}
-
-export async function triggerLiftSos(id: string) {
-  try {
-    const res = await fetch(`${API_BASE_URL}/lift/trigger-sos/${id}`, { method: 'POST' });
-    return await res.json();
-  } catch (err) {
-    console.error('Error triggering lift SOS:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
 export async function escalateNoise() {
   try {
-    const res = await fetch(`${API_BASE_URL}/noise/escalate`, { method: 'POST' });
+    const res = await fetch(`${API_BASE_URL}/noise/escalate`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     return await res.json();
   } catch (err) {
     console.error('Error escalating noise:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
-// AI Integration Methods
+export async function verifyGatePass(otpCode: string, unitNumber?: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/visitors/verify-gate`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ otpCode, unitNumber })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Error verifying visitor gate pass:', err);
+    return { success: false, error: 'Network error.' };
+  }
+}
+
+// 🛗 Lift SOS
+export async function triggerLiftSos(id: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/lift/trigger-sos/${id}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Error triggering lift SOS:', err);
+    return { success: false, error: 'Network error.' };
+  }
+}
+
+// 🔧 Maintenance Ticket
+export async function createMaintenanceTicket(data: { title: string; unit: string; priority?: string; description?: string }) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/maintenance/create`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Error creating maintenance ticket:', err);
+    return { success: false, error: 'Network error.' };
+  }
+}
+
+// 🎾 Amenity / Resource Booking
+export async function bookResource(id: string, startTime?: string, endTime?: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/resources/book/${id}`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ startTime, endTime })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Error booking resource:', err);
+    return { success: false, error: 'Network error.' };
+  }
+}
+
+// 📋 Audit Logs (Admins)
+export async function fetchAuditLogs() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/audit-logs`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.logs || [];
+  } catch (err) {
+    console.error('Error fetching audit logs:', err);
+    return [];
+  }
+}
+
+// 🤖 AI Integration Methods (Advisory Only)
 export async function askAiBrain(question: string, role?: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/ai/ask`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ question, role })
     });
     return await res.json();
   } catch (err) {
     console.error('Error querying AI Brain:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
@@ -116,16 +243,17 @@ export async function analyzeEmergencyWithAi(emergencyType: string, zone?: strin
   try {
     const res = await fetch(`${API_BASE_URL}/ai/analyze-emergency`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ emergencyType, zone, details })
     });
     return await res.json();
   } catch (err) {
     console.error('Error running AI emergency analysis:', err);
+    return { success: false, error: 'Network error.' };
   }
 }
 
-// Auth & User Profile API Methods
+// 🔑 Auth & User Profile API Methods
 export async function loginUser(email: string, password: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -133,21 +261,29 @@ export async function loginUser(email: string, password: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
-    return await res.json();
+    const data = await res.json();
+    if (data.success && data.token) {
+      localStorage.setItem('rn_auth_token', data.token);
+    }
+    return data;
   } catch (err) {
     console.error('Error logging in:', err);
     return { success: false, message: 'Network or server error.' };
   }
 }
 
-export async function signupUser(data: { name: string; email: string; password: string; role: string; flatNumber?: string; phone?: string }) {
+export async function signupUser(data: { name: string; email: string; password: string; role?: string; flatNumber?: string; phone?: string }) {
   try {
     const res = await fetch(`${API_BASE_URL}/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
-    return await res.json();
+    const resData = await res.json();
+    if (resData.success && resData.token) {
+      localStorage.setItem('rn_auth_token', resData.token);
+    }
+    return resData;
   } catch (err) {
     console.error('Error signing up:', err);
     return { success: false, message: 'Network or server error.' };
@@ -186,7 +322,7 @@ export async function updateUserProfile(userId: string, data: any) {
   try {
     const res = await fetch(`${API_BASE_URL}/auth/profile/${userId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data)
     });
     return await res.json();
@@ -196,10 +332,10 @@ export async function updateUserProfile(userId: string, data: any) {
   }
 }
 
-// Settings API Methods
+// ⚙️ Settings API Methods
 export async function fetchSettings() {
   try {
-    const res = await fetch(`${API_BASE_URL}/settings`);
+    const res = await fetch(`${API_BASE_URL}/settings`, { headers: getAuthHeaders() });
     if (!res.ok) return null;
     const json = await res.json();
     return json.settings;
@@ -213,7 +349,7 @@ export async function updateSettings(settingsData: any) {
   try {
     const res = await fetch(`${API_BASE_URL}/settings`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(settingsData)
     });
     return await res.json();
@@ -223,7 +359,7 @@ export async function updateSettings(settingsData: any) {
   }
 }
 
-// WebSocket Listener setup
+// ⚡ Authenticated WebSocket Connection
 export function connectRealtime(onMessage: (type: string, payload: any) => void) {
   let ws: WebSocket | null = null;
   try {
@@ -231,6 +367,11 @@ export function connectRealtime(onMessage: (type: string, payload: any) => void)
 
     ws.onopen = () => {
       console.log('✅ Connected to Smart Building Realtime Backend WebSocket!');
+      // Authenticate WebSocket session if token exists
+      const token = localStorage.getItem('rn_auth_token') || sessionStorage.getItem('rn_auth_token');
+      if (token && ws) {
+        ws.send(JSON.stringify({ type: 'AUTHENTICATE', token }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -243,7 +384,7 @@ export function connectRealtime(onMessage: (type: string, payload: any) => void)
     };
 
     ws.onerror = (err) => {
-      console.warn('WebSocket connection error (Server may be offline):', err);
+      console.warn('WebSocket connection error:', err);
     };
 
     ws.onclose = () => {

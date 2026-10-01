@@ -25,6 +25,7 @@
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.48.0",
     "mongoose": "^9.10.2",
+    "mysql2": "^3.24.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3",

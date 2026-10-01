@@ -8,6 +8,7 @@
     "todayConsumptionLiters": 48200,
     "flowRateLPM": 120,
     "pumpAutoCutoffActive": true,
+    "pumpOperationalState": "OFF",
     "lastQualityCheck": "Today, 08:30 AM"
   },
   "parkingSlots": [
@@ -67,11 +68,12 @@
     }
   ],
   "fireEmergencyData": {
-    "isAlarmActive": true,
-    "affectedZone": "Tower B Floor 4",
+    "isAlarmActive": false,
+    "affectedZone": "None",
     "smokeSensorsActive": 48,
-    "sprinklersStatus": "ACTIVATED",
-    "fireDepartmentNotified": true,
+    "sprinklersStatus": "STANDBY",
+    "fireDepartmentNotified": false,
+    "fireDeptStatus": "NOT_NOTIFIED",
     "evacuationRouteOpen": true
   },
   "visitorRequests": [
@@ -82,7 +84,8 @@
       "unitNumber": "B-402",
       "otpCode": "4829",
       "status": "PENDING",
-      "entryTime": "Pending"
+      "entryTime": "Pending",
+      "validUntil": "2026-10-02T12:00:00Z"
     },
     {
       "id": "v2",
@@ -91,7 +94,8 @@
       "unitNumber": "A-101",
       "otpCode": "1192",
       "status": "APPROVED",
-      "entryTime": "10:15 AM"
+      "entryTime": "10:15 AM",
+      "validUntil": "2026-10-02T18:00:00Z"
     },
     {
       "id": "v3",
@@ -100,36 +104,43 @@
       "unitNumber": "C-201",
       "otpCode": "9940",
       "status": "APPROVED",
-      "entryTime": "08:00 AM"
+      "entryTime": "08:00 AM",
+      "validUntil": "2026-10-02T18:00:00Z"
     }
   ],
   "maintenanceTickets": [
     {
       "id": "m1",
+      "ticketNumber": "MNT-1001",
       "title": "Corridor Light Flicker",
       "unit": "Tower A 3rd Fl",
       "priority": "LOW",
       "status": "OPEN",
       "date": "2026-09-29",
-      "technician": "Ramesh (Electrician)"
+      "technician": "Ramesh (Electrician)",
+      "slaHours": 48
     },
     {
       "id": "m2",
+      "ticketNumber": "MNT-1002",
       "title": "Low Water Pressure",
       "unit": "B-604",
       "priority": "MEDIUM",
       "status": "IN_PROGRESS",
       "date": "2026-09-29",
-      "technician": "Suresh (Plumber)"
+      "technician": "Suresh (Plumber)",
+      "slaHours": 24
     },
     {
       "id": "m3",
+      "ticketNumber": "MNT-1003",
       "title": "Main Gate Sensor Calib",
       "unit": "Gate 1",
       "priority": "HIGH",
       "status": "RESOLVED",
       "date": "2026-09-28",
-      "technician": "AI System Auto"
+      "technician": "AI System Auto",
+      "slaHours": 4
     }
   ],
   "liftStatuses": [
@@ -221,279 +232,39 @@
   },
   "resourceItems": [
     {
-      "id": "r1",
-      "name": "Clubhouse Banquet Hall",
-      "category": "Amenity",
+      "id": "res-1",
+      "name": "Community Banquet Hall",
+      "category": "Event Space",
       "status": "AVAILABLE",
       "pricePerHour": 500,
       "bookedBy": null
     },
     {
-      "id": "r2",
-      "name": "EV Fast Charger Spot 1",
-      "category": "Utility",
-      "status": "BUSY",
-      "pricePerHour": 80,
-      "bookedBy": "Rahul (A-101)"
+      "id": "res-2",
+      "name": "Clubhouse Badminton Court 1",
+      "category": "Sports",
+      "status": "AVAILABLE",
+      "pricePerHour": 100,
+      "bookedBy": null
     },
     {
-      "id": "r3",
-      "name": "Rooftop BBQ Grill Area",
-      "category": "Amenity",
+      "id": "res-3",
+      "name": "Rooftop Gazebo Barbecue Area",
+      "category": "Leisure",
       "status": "AVAILABLE",
-      "pricePerHour": 200,
+      "pricePerHour": 250,
+      "bookedBy": null
+    },
+    {
+      "id": "res-4",
+      "name": "Society Swimming Pool Lane 1",
+      "category": "Sports",
+      "status": "AVAILABLE",
+      "pricePerHour": 0,
       "bookedBy": null
     }
   ],
   "actionLogs": [
-    {
-      "id": "log-1790761143777",
-      "timestamp": "3:09:03 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790760652632",
-      "timestamp": "3:00:52 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758941692",
-      "timestamp": "2:32:21 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758939812",
-      "timestamp": "2:32:19 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758937613",
-      "timestamp": "2:32:17 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758862345",
-      "timestamp": "2:31:02 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758715410",
-      "timestamp": "2:28:35 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758713601",
-      "timestamp": "2:28:33 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758712600",
-      "timestamp": "2:28:32 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758711935",
-      "timestamp": "2:28:31 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790758711205",
-      "timestamp": "2:28:31 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790757723051",
-      "timestamp": "2:12:03 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790757680318",
-      "timestamp": "2:11:20 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790757678942",
-      "timestamp": "2:11:18 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790757678281",
-      "timestamp": "2:11:18 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790757676956",
-      "timestamp": "2:11:16 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790754492631",
-      "timestamp": "1:18:12 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790754491865",
-      "timestamp": "1:18:11 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790754491135",
-      "timestamp": "1:18:11 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790754490326",
-      "timestamp": "1:18:10 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790754487514",
-      "timestamp": "1:18:07 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790682969504",
-      "timestamp": "5:26:09 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790682966949",
-      "timestamp": "5:26:06 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680952301",
-      "timestamp": "4:52:32 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680948353",
-      "timestamp": "4:52:28 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680947234",
-      "timestamp": "4:52:27 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680568448",
-      "timestamp": "4:46:08 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680567159",
-      "timestamp": "4:46:07 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680418101",
-      "timestamp": "4:43:38 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680417342",
-      "timestamp": "4:43:37 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
-    {
-      "id": "log-1790680416016",
-      "timestamp": "4:43:36 pm",
-      "action": "🔥 FIRE EMERGENCY ALARM TRIGGERED",
-      "module": "FIRE",
-      "riskLevel": "HIGH",
-      "details": "Fire detected in Tower B Floor 4. Auto-dialed Fire Brigade."
-    },
     {
       "id": "log1",
       "timestamp": "16:05:12",
@@ -513,118 +284,50 @@
   ],
   "users": [
     {
-      "id": "u-1790684414463",
-      "name": "rohit",
-      "email": "rohit123@gmailo.com",
-      "passwordHash": "$2b$10$citA/77xVUbbGj10Uzllau/I0r4FQ1CGL363ehAd7gm4viCnjet3m",
-      "role": "Resident",
-      "flatNumber": "A-101",
-      "phone": "",
-      "emergencyContact": "",
-      "vehicleNumber": "MH 12 AB 123",
-      "createdAt": "2026-09-29T12:20:14.463Z"
+      "id": "u-admin",
+      "name": "Priya Patel (Admin)",
+      "email": "admin@society.com",
+      "role": "Facility Admin",
+      "flatNumber": "Management Office",
+      "phone": "+91 98765 11111",
+      "emergencyContact": null,
+      "vehicleNumber": null
     },
     {
-      "id": "u-1790755641192",
-      "name": "rohit",
-      "email": "rohit123@gmail.com",
-      "passwordHash": "$2b$10$.CiDbr/ELoGEiCXbJHZgeuB0jeKGQspN1CBcWTx2nAF6waXbqQdBy",
+      "id": "u-resident",
+      "name": "Rahul Sharma",
+      "email": "rahul@society.com",
       "role": "Resident",
       "flatNumber": "A-101",
-      "phone": "",
-      "emergencyContact": "",
-      "vehicleNumber": "",
-      "createdAt": "2026-09-30T08:07:21.192Z"
+      "phone": "+91 98765 43210",
+      "emergencyContact": null,
+      "vehicleNumber": null
+    },
+    {
+      "id": "usr-001",
+      "name": "Rohit Sharma",
+      "email": "rohit@raahnagar.ai",
+      "role": "Resident",
+      "flatNumber": "B-204",
+      "phone": "+91 98765 43210",
+      "emergencyContact": null,
+      "vehicleNumber": null
     }
   ],
   "userSettings": {
     "accountProfile": {
       "residentName": "Rohit Sharma",
-      "flatNumber": "Unit C-402",
+      "flatNumber": "A-101",
       "emergencyContact": "+91 98765 00000",
-      "verifiedBadge": true,
-      "familyMembers": [
-        {
-          "id": "fm-1",
-          "name": "Priya Sharma",
-          "relation": "Spouse",
-          "phone": "+91 98765 11111"
-        },
-        {
-          "id": "fm-2",
-          "name": "Aarav Sharma",
-          "relation": "Child",
-          "phone": ""
-        }
-      ],
-      "registeredVehicles": [
-        {
-          "id": "v-1",
-          "plateNumber": "MH-02-CP-1234",
-          "vehicleType": "EV Car",
-          "slotAssigned": "#42"
-        },
-        {
-          "id": "v-2",
-          "plateNumber": "MH-02-CP-5678",
-          "vehicleType": "Scooter",
-          "slotAssigned": "#42B"
-        }
-      ],
-      "digitalPasskeys": {
-        "rfidCardId": "RFID-9842-X",
-        "biometricPassEnabled": true,
-        "mobileNfcKeyEnabled": true
-      }
-    },
-    "aiAutomation": {
-      "autoValveV102Shutoff": true,
-      "humanApprovalRequiredForRoutine": true,
-      "motionPirSensitivity": "MEDIUM",
-      "ambientLightThresholdLux": 30,
-      "predictiveShortageAlerts": true,
-      "predictiveShortageFrequency": "IMMEDIATE"
-    },
-    "privacyData": {
-      "cctvEdgeProcessingOnly": true,
-      "noiseGuardianRawMicDisabled": true,
-      "activityLogsRetentionDays": 30,
-      "autoDeleteLogsEnabled": true
+      "verifiedBadge": true
     },
     "notificationsAlerts": {
       "criticalAlertsOverrideSound": true,
-      "infoAlertsEnabled": true,
-      "routineAlertsEnabled": true,
-      "quietHoursEnabled": true,
-      "quietHoursStart": "22:00",
-      "quietHoursEnd": "07:00"
-    },
-    "visitorSecurityRules": {
-      "preApprovedDeliveriesSilentPass": true,
-      "guestVerificationMethod": "QR_OTP",
-      "blacklistedVisitors": [
-        {
-          "id": "bl-1",
-          "name": "Unknown Vendor",
-          "reason": "Unauthorized Soliciting",
-          "date": "2026-08-12"
-        }
-      ]
-    },
-    "walletSharing": {
-      "pCoinsBalance": 450,
-      "bankPayoutAccount": "HDFC Bank **** 4892",
-      "resourceSharingAvailabilityWindow": "09:00 AM - 08:00 PM",
-      "toolSecurityDepositLimitPCoins": 100,
-      "trustScorePrivateMode": true
+      "infoAlertsEnabled": true
     },
     "appSystemPreferences": {
       "theme": "dark",
-      "language": "en",
-      "emergencyVoiceLanguage": "hi",
-      "cacheSizeMb": 12.4,
-      "offlineSyncEnabled": true,
-      "rnVersion": "RN Version 1.0"
+      "language": "hi"
     }
   }
 }
