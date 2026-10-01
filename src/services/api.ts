@@ -1,5 +1,20 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5000/api` : 'http://localhost:5000/api');
-const WS_URL = import.meta.env.VITE_WS_URL || (typeof window !== 'undefined' ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:5000` : 'ws://localhost:5000');
+const isProd = import.meta.env.PROD;
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined'
+    ? isProd
+      ? `${window.location.origin}/api`
+      : `${window.location.protocol}//${window.location.hostname}:5000/api`
+    : 'http://localhost:5000/api');
+
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  (typeof window !== 'undefined'
+    ? isProd
+      ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:5000`
+    : 'ws://localhost:5000');
 
 export interface BackendDataSync {
   waterData: any;
