@@ -30,7 +30,17 @@ import {
   triggerFireEmergency,
   resetFireEmergency,
   approveVisitor,
-  escalateNoise
+  escalateNoise,
+  resetNoise,
+  sendValveCommand,
+  toggleParkingSlot,
+  triggerLiftSos,
+  resetLiftSos,
+  dispatchWasteVendor,
+  bookResource,
+  createMaintenanceTicket,
+  setAuthToken,
+  clearAuthToken
 } from './services/api';
 
 import {
@@ -90,14 +100,30 @@ export function App() {
   const handleAuthSuccess = (user: UserProfileData, token: string) => {
     setCurrentUser(user);
     setUserRole(user.role);
+    setAuthToken(token);
     localStorage.setItem('society_user', JSON.stringify(user));
-    localStorage.setItem('society_token', token);
+
+    // Immediately trigger backend sync on login
+    fetchFullSync().then((data) => {
+      if (data) {
+        setIsBackendConnected(true);
+        if (data.waterData) setWaterData((prev) => ({ ...prev, ...data.waterData }));
+        if (data.parkingSlots) setParkingSlots(data.parkingSlots);
+        if (data.fireEmergencyData) setFireData((prev) => ({ ...prev, ...data.fireEmergencyData }));
+        if (data.visitorRequests) setVisitorRequests(data.visitorRequests);
+        if (data.maintenanceTickets) setMaintenanceTickets(data.maintenanceTickets);
+        if (data.liftStatuses && data.liftStatuses.length > 0) setLiftStatus((prev) => ({ ...prev, ...data.liftStatuses[0] }));
+        if (data.wasteBins) setWasteBins(data.wasteBins);
+        if (data.noiseData) setNoiseData(data.noiseData);
+        if (data.resourceItems) setResourceItems(data.resourceItems);
+        if (data.actionLogs) setActionLogs(data.actionLogs);
+      }
+    });
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('society_user');
-    localStorage.removeItem('society_token');
+    clearAuthToken();
   };
 
   const handleUpdateUser = (updatedUser: UserProfileData) => {
@@ -121,13 +147,19 @@ export function App() {
 
   // Sync Backend WebSocket & REST APIs
   useEffect(() => {
+    // Initial fetch if user is already authenticated
     fetchFullSync().then((data) => {
       if (data) {
         setIsBackendConnected(true);
-        if (data.noiseData) setNoiseData(data.noiseData);
+        if (data.waterData) setWaterData((prev) => ({ ...prev, ...data.waterData }));
+        if (data.parkingSlots) setParkingSlots(data.parkingSlots);
+        if (data.fireEmergencyData) setFireData((prev) => ({ ...prev, ...data.fireEmergencyData }));
         if (data.visitorRequests) setVisitorRequests(data.visitorRequests);
         if (data.maintenanceTickets) setMaintenanceTickets(data.maintenanceTickets);
-        if (data.parkingSlots) setParkingSlots(data.parkingSlots);
+        if (data.liftStatuses && data.liftStatuses.length > 0) setLiftStatus((prev) => ({ ...prev, ...data.liftStatuses[0] }));
+        if (data.wasteBins) setWasteBins(data.wasteBins);
+        if (data.noiseData) setNoiseData(data.noiseData);
+        if (data.resourceItems) setResourceItems(data.resourceItems);
         if (data.actionLogs) setActionLogs(data.actionLogs);
       }
     });
@@ -135,16 +167,36 @@ export function App() {
     const unsubscribe = connectRealtime((type, payload) => {
       setIsBackendConnected(true);
       if (type === 'INITIAL_SYNC' && payload) {
-        if (payload.noiseData) setNoiseData(payload.noiseData);
+        if (payload.waterData) setWaterData((prev) => ({ ...prev, ...payload.waterData }));
+        if (payload.parkingSlots) setParkingSlots(payload.parkingSlots);
+        if (payload.fireEmergencyData) setFireData((prev) => ({ ...prev, ...payload.fireEmergencyData }));
         if (payload.visitorRequests) setVisitorRequests(payload.visitorRequests);
         if (payload.maintenanceTickets) setMaintenanceTickets(payload.maintenanceTickets);
+        if (payload.liftStatuses && payload.liftStatuses.length > 0) setLiftStatus((prev) => ({ ...prev, ...payload.liftStatuses[0] }));
+        if (payload.wasteBins) setWasteBins(payload.wasteBins);
+        if (payload.noiseData) setNoiseData(payload.noiseData);
+        if (payload.resourceItems) setResourceItems(payload.resourceItems);
         if (payload.actionLogs) setActionLogs(payload.actionLogs);
-      } else if (type === 'NOISE_UPDATED') {
-        setNoiseData(payload);
+      } else if (type === 'WATER_UPDATED') {
+        setWaterData((prev) => ({ ...prev, ...payload }));
+      } else if (type === 'PARKING_UPDATED') {
+        setParkingSlots(payload);
+      } else if (type === 'FIRE_EMERGENCY') {
+        setFireData((prev) => ({ ...prev, ...payload, isActive: !!payload.isAlarmActive }));
       } else if (type === 'VISITOR_UPDATED') {
         setVisitorRequests(payload);
-      } else if (type === 'FIRE_EMERGENCY') {
-        setFireData(payload);
+      } else if (type === 'MAINTENANCE_UPDATED') {
+        setMaintenanceTickets(payload);
+      } else if (type === 'LIFT_UPDATED') {
+        if (Array.isArray(payload) && payload.length > 0) {
+          setLiftStatus((prev) => ({ ...prev, ...payload[0] }));
+        }
+      } else if (type === 'WASTE_UPDATED') {
+        setWasteBins(payload);
+      } else if (type === 'NOISE_UPDATED') {
+        setNoiseData(payload);
+      } else if (type === 'RESOURCE_UPDATED') {
+        setResourceItems(payload);
       } else if (type === 'NEW_ACTION_LOG') {
         setActionLogs((prev) => [payload, ...prev]);
       }
@@ -161,7 +213,7 @@ export function App() {
     systemState = 'ATTENTION';
   }
 
-  // Simulation Handlers
+  // Scenario Handlers
   const handleSelectScenario = (scenario: 'NORMAL' | 'FIRE' | 'WATER' | 'LIFT' | 'NOISE') => {
     setActiveScenario(scenario);
     if (scenario === 'FIRE') {
@@ -172,13 +224,17 @@ export function App() {
       setWaterData((prev) => ({ ...prev, leakageDetected: true }));
       setActiveTab('water-leakage');
     } else if (scenario === 'LIFT') {
+      triggerLiftSos('l1');
       setLiftStatus((prev) => ({ ...prev, status: 'TRAPPED_EMERGENCY' }));
       setActiveTab('lift');
     } else if (scenario === 'NOISE') {
+      escalateNoise();
       setNoiseData((prev) => ({ ...prev, currentViolationStage: 1 }));
       setActiveTab('noise');
     } else {
       resetFireEmergency();
+      resetLiftSos('l1');
+      resetNoise();
       setFireData((prev) => ({ ...prev, isActive: false }));
       setWaterData((prev) => ({ ...prev, leakageDetected: false }));
       setLiftStatus((prev) => ({ ...prev, status: 'NORMAL' }));
@@ -187,28 +243,29 @@ export function App() {
     }
   };
 
-  // Water Actions
-  const handleToggleValve = () => {
-    setWaterData((prev) => ({ ...prev, valveClosed: !prev.valveClosed }));
+  // Real Water Valve Action
+  const handleToggleValve = async () => {
+    const nextState = !waterData.valveClosed;
+    const res = await sendValveCommand(nextState);
+    if (res && res.success) {
+      setWaterData((prev) => ({ ...prev, valveClosed: res.valveClosed }));
+    } else {
+      setWaterData((prev) => ({ ...prev, valveClosed: nextState }));
+    }
   };
 
   const handleConfirmWaterVerification = () => {
     setWaterData((prev) => ({ ...prev, leakageDetected: false }));
   };
 
-  // Parking Actions
-  const handleToggleSlotSharing = (slotId: string) => {
-    setParkingSlots((prev) =>
-      prev.map((s) => (s.id === slotId ? { ...s, status: s.status === 'shared' ? 'vacant' : 'shared' } : s))
-    );
+  // Real Parking Action
+  const handleToggleSlotSharing = async (slotId: string) => {
+    await toggleParkingSlot(slotId);
   };
 
-  // Visitor Actions
-  const handleApproveVisitor = (id: string) => {
-    approveVisitor(id);
-    setVisitorRequests((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, status: 'approved' } : v))
-    );
+  // Real Visitor Action
+  const handleApproveVisitor = async (id: string) => {
+    await approveVisitor(id);
   };
 
   const handleDenyVisitor = (id: string) => {
@@ -217,32 +274,29 @@ export function App() {
     );
   };
 
-  // Maintenance Actions
-  const handleAddTicket = (t: MaintenanceTicket) => {
-    setMaintenanceTickets((prev) => [t, ...prev]);
+  // Real Maintenance Action
+  const handleAddTicket = async (t: MaintenanceTicket) => {
+    await createMaintenanceTicket({
+      title: t.title,
+      unit: t.unit,
+      priority: t.priority,
+      description: t.description
+    });
   };
 
-  // Waste Actions
-  const handleDispatchVendor = (binId: string) => {
-    setWasteBins((prev) =>
-      prev.map((b) => (b.binId === binId ? { ...b, vendorDispatched: true, vendorName: 'CleanCity Logistics' } : b))
-    );
+  // Real Waste Action
+  const handleDispatchVendor = async (binId: string) => {
+    await dispatchWasteVendor(binId, 'CleanCity Logistics');
   };
 
-  // Noise Escalation
-  const handleSimulateNoiseEscalation = () => {
-    escalateNoise();
-    setNoiseData((prev) => ({
-      ...prev,
-      currentViolationStage: Math.min(3, prev.currentViolationStage + 1) as any
-    }));
+  // Real Noise Escalation
+  const handleSimulateNoiseEscalation = async () => {
+    await escalateNoise();
   };
 
-  // Resource Request
-  const handleRequestResource = (id: string) => {
-    setResourceItems((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: 'requested' } : r))
-    );
+  // Real Resource Booking Action
+  const handleRequestResource = async (id: string) => {
+    await bookResource(id);
   };
 
   return (

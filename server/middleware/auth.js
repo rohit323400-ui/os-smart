@@ -1,8 +1,20 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { query } from '../db.js';
 import { hasPermission } from '../rbac.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_society_jwt_key_2026';
+// 🔒 Secure JWT Secret Management (Zero Hardcoded Weak Fallback)
+let jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret || jwtSecret.trim() === '' || jwtSecret === 'super_secret_society_jwt_key_2026') {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: JWT_SECRET environment variable must be explicitly defined and secure in production mode!');
+  }
+  // For secure local runtime, generate a cryptographically strong 256-bit ephemeral secret
+  jwtSecret = crypto.randomBytes(64).toString('hex');
+  console.warn('⚠️ [SECURITY NOTICE]: JWT_SECRET was not provided or was default. Generated secure dynamic 256-bit secret for this runtime session.');
+}
+
+export const JWT_SECRET = jwtSecret;
 
 // ⏱️ Sliding Window Rate Limiter (In-Memory per IP)
 const rateLimitMap = new Map();
@@ -49,18 +61,17 @@ export async function authenticateToken(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Check if user exists in MySQL database
+    // Check if user exists and is active in MySQL database
     try {
       const users = await query('SELECT id, name, email, role, flat_number, phone, is_verified FROM users WHERE id = ?', [decoded.id]);
       if (users.length === 0) {
         return res.status(401).json({
           success: false,
-          error: 'User account associated with this token no longer exists.'
+          error: 'User account associated with this session no longer exists.'
         });
       }
       req.user = users[0];
     } catch (dbErr) {
-      // If DB read fails, fallback to decoded JWT claims
       req.user = decoded;
     }
 
@@ -95,7 +106,7 @@ export function requirePermission(permission) {
   };
 }
 
-// 🛡️ Direct Role Restriction Middleware (e.g. ['Facility Admin', 'Super Admin'])
+// 🛡️ Direct Role Restriction Middleware
 export function requireRole(allowedRoles = []) {
   return (req, res, next) => {
     if (!req.user) {

@@ -8,193 +8,24 @@
     "todayConsumptionLiters": 48200,
     "flowRateLPM": 120,
     "pumpAutoCutoffActive": true,
-    "pumpOperationalState": "OFF",
+    "pumpOperationalState": "RUNNING",
+    "valveClosed": false,
+    "leakageDetected": false,
     "lastQualityCheck": "Today, 08:30 AM"
   },
-  "parkingSlots": [
-    {
-      "id": "1",
-      "slotNumber": "A-101",
-      "isOccupied": true,
-      "residentName": "Rahul Sharma",
-      "vehicleType": "EV Car",
-      "vehicleNumber": "MH 12 AB 1234",
-      "isEvCharging": true
-    },
-    {
-      "id": "2",
-      "slotNumber": "A-102",
-      "isOccupied": false,
-      "residentName": "Unassigned",
-      "vehicleType": "None",
-      "vehicleNumber": "N/A",
-      "isEvCharging": false
-    },
-    {
-      "id": "3",
-      "slotNumber": "B-205",
-      "isOccupied": true,
-      "residentName": "Priya Patel",
-      "vehicleType": "Sedan",
-      "vehicleNumber": "MH 12 CD 5678",
-      "isEvCharging": false
-    },
-    {
-      "id": "4",
-      "slotNumber": "B-206",
-      "isOccupied": true,
-      "residentName": "Amit Verma",
-      "vehicleType": "SUV",
-      "vehicleNumber": "MH 12 EF 9012",
-      "isEvCharging": false
-    },
-    {
-      "id": "5",
-      "slotNumber": "C-301",
-      "isOccupied": false,
-      "residentName": "Visitor Spot",
-      "vehicleType": "None",
-      "vehicleNumber": "N/A",
-      "isEvCharging": true
-    },
-    {
-      "id": "6",
-      "slotNumber": "C-302",
-      "isOccupied": true,
-      "residentName": "Karan Singh",
-      "vehicleType": "EV Bike",
-      "vehicleNumber": "MH 12 GH 3456",
-      "isEvCharging": true
-    }
-  ],
+  "parkingSlots": [],
   "fireEmergencyData": {
     "isAlarmActive": false,
     "affectedZone": "None",
     "smokeSensorsActive": 48,
     "sprinklersStatus": "STANDBY",
-    "fireDepartmentNotified": false,
     "fireDeptStatus": "NOT_NOTIFIED",
     "evacuationRouteOpen": true
   },
-  "visitorRequests": [
-    {
-      "id": "v1",
-      "visitorName": "Ramesh Kumar",
-      "category": "Delivery",
-      "unitNumber": "B-402",
-      "otpCode": "4829",
-      "status": "PENDING",
-      "entryTime": "Pending",
-      "validUntil": "2026-10-02T12:00:00Z"
-    },
-    {
-      "id": "v2",
-      "visitorName": "Anita Roy",
-      "category": "Guest",
-      "unitNumber": "A-101",
-      "otpCode": "1192",
-      "status": "APPROVED",
-      "entryTime": "10:15 AM",
-      "validUntil": "2026-10-02T18:00:00Z"
-    },
-    {
-      "id": "v3",
-      "visitorName": "FastClean Maid",
-      "category": "Service",
-      "unitNumber": "C-201",
-      "otpCode": "9940",
-      "status": "APPROVED",
-      "entryTime": "08:00 AM",
-      "validUntil": "2026-10-02T18:00:00Z"
-    }
-  ],
-  "maintenanceTickets": [
-    {
-      "id": "m1",
-      "ticketNumber": "MNT-1001",
-      "title": "Corridor Light Flicker",
-      "unit": "Tower A 3rd Fl",
-      "priority": "LOW",
-      "status": "OPEN",
-      "date": "2026-09-29",
-      "technician": "Ramesh (Electrician)",
-      "slaHours": 48
-    },
-    {
-      "id": "m2",
-      "ticketNumber": "MNT-1002",
-      "title": "Low Water Pressure",
-      "unit": "B-604",
-      "priority": "MEDIUM",
-      "status": "IN_PROGRESS",
-      "date": "2026-09-29",
-      "technician": "Suresh (Plumber)",
-      "slaHours": 24
-    },
-    {
-      "id": "m3",
-      "ticketNumber": "MNT-1003",
-      "title": "Main Gate Sensor Calib",
-      "unit": "Gate 1",
-      "priority": "HIGH",
-      "status": "RESOLVED",
-      "date": "2026-09-28",
-      "technician": "AI System Auto",
-      "slaHours": 4
-    }
-  ],
-  "liftStatuses": [
-    {
-      "id": "l1",
-      "liftName": "Tower A - Main Passenger",
-      "floor": 7,
-      "status": "NORMAL",
-      "ardBatteryPercent": 98,
-      "lastServiced": "2026-09-15"
-    },
-    {
-      "id": "l2",
-      "liftName": "Tower A - Service Lift",
-      "floor": 2,
-      "status": "NORMAL",
-      "ardBatteryPercent": 94,
-      "lastServiced": "2026-09-10"
-    },
-    {
-      "id": "l3",
-      "liftName": "Tower B - Main Passenger",
-      "floor": 12,
-      "status": "NORMAL",
-      "ardBatteryPercent": 100,
-      "lastServiced": "2026-09-20"
-    }
-  ],
-  "wasteBins": [
-    {
-      "id": "w1",
-      "binType": "Wet Organic Waste",
-      "fillPercentage": 78,
-      "odorScoreLevel": 3,
-      "lastEmptied": "6 hrs ago",
-      "status": "WARN"
-    },
-    {
-      "id": "w2",
-      "binType": "Dry Recyclables",
-      "fillPercentage": 42,
-      "odorScoreLevel": 1,
-      "lastEmptied": "12 hrs ago",
-      "status": "OK"
-    },
-    {
-      "id": "w3",
-      "binType": "E-Waste Bin",
-      "fillPercentage": 20,
-      "odorScoreLevel": 1,
-      "lastEmptied": "2 days ago",
-      "status": "OK"
-    }
-  ],
+  "visitorRequests": [],
+  "maintenanceTickets": [],
+  "liftStatuses": [],
+  "wasteBins": [],
   "noiseData": {
     "currentDecibels": 48,
     "targetUnit": "B-304",
@@ -235,99 +66,79 @@
       "id": "res-1",
       "name": "Community Banquet Hall",
       "category": "Event Space",
-      "status": "AVAILABLE",
       "pricePerHour": 500,
-      "bookedBy": null
+      "status": "AVAILABLE"
     },
     {
       "id": "res-2",
       "name": "Clubhouse Badminton Court 1",
       "category": "Sports",
-      "status": "AVAILABLE",
       "pricePerHour": 100,
-      "bookedBy": null
+      "status": "AVAILABLE"
     },
     {
       "id": "res-3",
       "name": "Rooftop Gazebo Barbecue Area",
       "category": "Leisure",
-      "status": "AVAILABLE",
       "pricePerHour": 250,
-      "bookedBy": null
+      "status": "AVAILABLE"
     },
     {
       "id": "res-4",
       "name": "Society Swimming Pool Lane 1",
       "category": "Sports",
-      "status": "AVAILABLE",
       "pricePerHour": 0,
-      "bookedBy": null
+      "status": "AVAILABLE"
     }
   ],
   "actionLogs": [
     {
-      "id": "log1",
-      "timestamp": "16:05:12",
-      "action": "Overhead Tank Auto-Cutoff Executed",
-      "module": "WATER",
+      "id": "log-6",
+      "timestamp": "8:34:08 pm",
+      "action": "AMENITY_BOOKED",
+      "module": "RESOURCE",
       "riskLevel": "LOW",
-      "details": "Pumps shut down safely at 95% threshold."
+      "details": "Action performed by Resident (IP: ::1)"
     },
     {
-      "id": "log2",
-      "timestamp": "15:40:00",
-      "action": "Visitor OTP Auto-Verified",
-      "module": "SECURITY",
+      "id": "log-5",
+      "timestamp": "8:34:04 pm",
+      "action": "AMENITY_BOOKED",
+      "module": "RESOURCE",
       "riskLevel": "LOW",
-      "details": "Ramesh Kumar allowed entry at Gate 1."
-    }
-  ],
-  "users": [
-    {
-      "id": "u-admin",
-      "name": "Priya Patel (Admin)",
-      "email": "admin@society.com",
-      "role": "Facility Admin",
-      "flatNumber": "Management Office",
-      "phone": "+91 98765 11111",
-      "emergencyContact": null,
-      "vehicleNumber": null
+      "details": "Action performed by Resident (IP: ::1)"
     },
     {
-      "id": "u-resident",
-      "name": "Rahul Sharma",
-      "email": "rahul@society.com",
-      "role": "Resident",
-      "flatNumber": "A-101",
-      "phone": "+91 98765 43210",
-      "emergencyContact": null,
-      "vehicleNumber": null
+      "id": "log-4",
+      "timestamp": "8:33:56 pm",
+      "action": "AMENITY_BOOKED",
+      "module": "RESOURCE",
+      "riskLevel": "LOW",
+      "details": "Action performed by Resident (IP: ::1)"
     },
     {
-      "id": "usr-001",
-      "name": "Rohit Sharma",
-      "email": "rohit@raahnagar.ai",
-      "role": "Resident",
-      "flatNumber": "B-204",
-      "phone": "+91 98765 43210",
-      "emergencyContact": null,
-      "vehicleNumber": null
-    }
-  ],
-  "userSettings": {
-    "accountProfile": {
-      "residentName": "Rohit Sharma",
-      "flatNumber": "A-101",
-      "emergencyContact": "+91 98765 00000",
-      "verifiedBadge": true
+      "id": "log-3",
+      "timestamp": "8:29:53 pm",
+      "action": "RESIDENT_SELF_REGISTERED",
+      "module": "USER",
+      "riskLevel": "LOW",
+      "details": "Action performed by Resident (IP: ::1)"
     },
-    "notificationsAlerts": {
-      "criticalAlertsOverrideSound": true,
-      "infoAlertsEnabled": true
+    {
+      "id": "log-2",
+      "timestamp": "8:20:26 pm",
+      "action": "PUMP_START_COMMAND_SENT",
+      "module": "WATER_PUMP",
+      "riskLevel": "LOW",
+      "details": "Action performed by Facility Admin (IP: ::1)"
     },
-    "appSystemPreferences": {
-      "theme": "dark",
-      "language": "hi"
+    {
+      "id": "log-1",
+      "timestamp": "8:19:05 pm",
+      "action": "RESIDENT_SELF_REGISTERED",
+      "module": "USER",
+      "riskLevel": "LOW",
+      "details": "Action performed by Resident (IP: ::1)"
     }
-  }
+  ]
 }

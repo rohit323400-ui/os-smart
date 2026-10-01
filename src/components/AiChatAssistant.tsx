@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Send, Bot, Sparkles } from 'lucide-react';
+import { askAiBrain } from '../services/api';
 
 interface Message {
   id: string;
@@ -96,17 +97,30 @@ Aap inme se kisi specific feature ke baare me detail puch sakte hain!`;
     setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      const aiReplyText = generateAnswer(currentInput);
-      const aiMsg: Message = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        text: aiReplyText,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-      setIsTyping(false);
-    }, 400);
+    // Call live backend AI first, fallback to rule engine if backend offline
+    askAiBrain(currentInput)
+      .then((res) => {
+        const text = res && res.success && res.answer ? res.answer : generateAnswer(currentInput);
+        const aiMsg: Message = {
+          id: `ai-${Date.now()}`,
+          sender: 'ai',
+          text,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages((prev) => [...prev, aiMsg]);
+        setIsTyping(false);
+      })
+      .catch(() => {
+        const aiReplyText = generateAnswer(currentInput);
+        const aiMsg: Message = {
+          id: `ai-${Date.now()}`,
+          sender: 'ai',
+          text: aiReplyText,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages((prev) => [...prev, aiMsg]);
+        setIsTyping(false);
+      });
   };
 
   const quickQuestions = [
