@@ -11,8 +11,8 @@ import { GoogleGenAI } from '@google/genai';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-import db, { query, recordAuditLog, verifyFlatRegistry, createDeviceCommand, confirmDeviceCommand } from './db.js';
-import { authenticateToken, requirePermission, requireRole, rateLimit, JWT_SECRET } from './middleware/auth.js';
+import db, { query, recordAuditLog, createDeviceCommand, confirmDeviceCommand } from './db.js';
+import { authenticateToken, requirePermission, rateLimit, JWT_SECRET } from './middleware/auth.js';
 import { ROLES, PERMISSIONS, hasPermission } from './rbac.js';
 import { sendSmsNotification, sendEmailNotification } from './services/notifier.js';
 
@@ -120,10 +120,29 @@ let telemetryCache = {
 // Sync MySQL data into memory cache
 async function syncFromDatabase() {
   try {
+    // Query IoT device connectivity status from registry
+    let deviceMap = {};
+    try {
+      const devRows = await query('SELECT id, status, last_seen FROM iot_devices');
+      devRows.forEach(d => { deviceMap[d.id] = d; });
+    } catch (e) {
+      // Table fallback
+    }
+
     // 1. Water
     const waterRows = await query('SELECT * FROM water_metrics LIMIT 1');
     if (waterRows.length > 0) {
       const w = waterRows[0];
+      const mainPumpDev = deviceMap['PUMP-MAIN-01'];
+      const pumpState = (!mainPumpDev || mainPumpDev.status === 'NOT_CONNECTED')
+        ? 'NOT_CONNECTED'
+        : (mainPumpDev.status === 'OFFLINE' ? 'OFFLINE' : (w.pump_operational_state || 'OFF'));
+
+      const valveDev = deviceMap['VALVE-MAIN-V102'];
+      const valveHwStatus = (!valveDev || valveDev.status === 'NOT_CONNECTED')
+        ? 'NOT_CONNECTED'
+        : (valveDev.status === 'OFFLINE' ? 'OFFLINE' : 'ONLINE');
+
       telemetryCache.waterData = {
         ...telemetryCache.waterData,
         overheadTank: w.overhead_tank,
@@ -134,7 +153,9 @@ async function syncFromDatabase() {
         todayConsumptionLiters: w.today_consumption_liters,
         flowRateLPM: w.flow_rate_lpm,
         pumpAutoCutoffActive: !!w.pump_cutoff_active,
-        pumpOperationalState: w.pump_operational_state || 'OFF',
+        pumpOperationalState: pumpState,
+        hardwareStatus: mainPumpDev ? mainPumpDev.status : 'NOT_CONNECTED',
+        valveHardwareStatus: valveHwStatus,
         lastQualityCheck: w.last_quality_check
       };
     }
@@ -285,8 +306,19 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-gateway-key']
 }));
+
+// 🛡️ Production Security Headers (HTTPS/WSS Ready)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(express.json());
 
 const server = http.createServer(app);
@@ -509,24 +541,175 @@ app.post('/api/iot/gateway/telemetry', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Unauthorized IoT Gateway Key' });
   }
 
-  const { deviceId, deviceType, operationalState, commandId, readings } = req.body;
-  if (deviceType === 'WATER_PUMP' && operationalState) {
-    telemetryCache.waterData.pumpOperationalState = operationalState;
+  const { deviceId, deviceType = 'GENERIC', operationalState, commandId, readings, firmwareVersion } = req.body;
+
+  try {
+    // 1. Update IoT Device Registry (Online / Last Seen tracking)
+    if (deviceId) {
+      await query(
+        `INSERT INTO iot_devices (id, device_name, device_type, location, status, last_seen, ip_address, firmware_version)
+         VALUES (?, ?, ?, 'Society Grounds', 'ONLINE', NOW(), ?, ?)
+         ON DUPLICATE KEY UPDATE 
+           status = 'ONLINE',
+           last_seen = NOW(),
+           ip_address = COALESCE(VALUES(ip_address), ip_address),
+           firmware_version = COALESCE(VALUES(firmware_version), firmware_version)`,
+        [deviceId, deviceId, deviceType, req.ip, firmwareVersion || '1.0.0']
+      );
+    }
+
+    // 2. Command confirmation (COMMAND -> DEVICE ACK -> CONFIRMED STATE)
     if (commandId) {
       await confirmDeviceCommand(commandId, 'CONFIRMED');
+      await recordAuditLog({
+        userId: 'IOT_GATEWAY',
+        userRole: 'DEVICE_GATEWAY',
+        action: 'DEVICE_COMMAND_CONFIRMED',
+        entityType: deviceType,
+        entityId: deviceId,
+        newValue: { commandId, operationalState },
+        ip: req.ip
+      });
+      broadcast('COMMAND_CONFIRMED', { commandId, deviceId, status: 'CONFIRMED', operationalState });
     }
-    await query('UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1', [operationalState]);
-    broadcast('WATER_UPDATED', telemetryCache.waterData);
-  } else if (deviceType === 'WATER_VALVE' && operationalState) {
-    const isClosed = operationalState === 'CLOSED';
-    telemetryCache.waterData.valveClosed = isClosed;
-    if (commandId) {
-      await confirmDeviceCommand(commandId, 'CONFIRMED');
+
+    // 3. Persistent Telemetry History Insertion
+    if (readings) {
+      const readingEntries = Array.isArray(readings) ? readings : Object.entries(readings).map(([key, val]) => ({
+        metricName: key,
+        metricValue: typeof val === 'number' ? val : parseFloat(val) || 0,
+        unit: key.includes('temp') ? '°C' : key.includes('flow') ? 'LPM' : key.includes('tank') || key.includes('sump') || key.includes('level') || key.includes('fill') ? '%' : key.includes('db') || key.includes('decibel') ? 'dB' : '',
+        status: 'NORMAL'
+      }));
+
+      for (const r of readingEntries) {
+        if (r.metricName && r.metricValue !== undefined) {
+          await query(
+            `INSERT INTO telemetry_history (device_id, device_type, metric_name, metric_value, unit, status)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [deviceId || 'GATEWAY-01', deviceType, r.metricName, r.metricValue, r.unit || '', r.status || 'NORMAL']
+          );
+        }
+      }
     }
-    broadcast('WATER_UPDATED', telemetryCache.waterData);
+
+    // 4. Update operational state based on deviceType
+    if (deviceType === 'WATER_PUMP' && operationalState) {
+      telemetryCache.waterData.pumpOperationalState = operationalState;
+      await query('UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1', [operationalState]);
+      broadcast('WATER_UPDATED', telemetryCache.waterData);
+    } else if (deviceType === 'WATER_VALVE' && operationalState) {
+      const isClosed = operationalState === 'CLOSED';
+      telemetryCache.waterData.valveClosed = isClosed;
+      broadcast('WATER_UPDATED', telemetryCache.waterData);
+    } else if (deviceType === 'LEVEL_SENSOR' && readings) {
+      if (readings.overheadTank !== undefined) {
+        telemetryCache.waterData.overheadTank = readings.overheadTank;
+        await query('UPDATE water_metrics SET overhead_tank = ? WHERE id = 1', [readings.overheadTank]);
+      }
+      if (readings.undergroundSump !== undefined) {
+        telemetryCache.waterData.undergroundSump = readings.undergroundSump;
+        await query('UPDATE water_metrics SET underground_sump = ? WHERE id = 1', [readings.undergroundSump]);
+      }
+      broadcast('WATER_UPDATED', telemetryCache.waterData);
+    }
+
+    res.json({ success: true, message: `Physical telemetry confirmed and ingested for ${deviceId}` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Telemetry ingestion failed: ' + err.message });
+  }
+});
+
+// Direct Physical Device ACK Endpoint (COMMAND -> DEVICE ACK -> CONFIRMED STATE)
+app.post('/api/iot/gateway/ack', async (req, res) => {
+  const gatewayKey = req.headers['x-gateway-key'];
+  if (!gatewayKey || gatewayKey !== iotGatewayKey) {
+    return res.status(401).json({ success: false, error: 'Unauthorized IoT Gateway Key' });
   }
 
-  res.json({ success: true, message: `Physical telemetry confirmed and ingested for ${deviceId}` });
+  const { commandId, deviceId, status = 'CONFIRMED', errorMessage = null, actualState = null } = req.body;
+  if (!commandId) {
+    return res.status(400).json({ success: false, error: 'commandId is required.' });
+  }
+
+  try {
+    await confirmDeviceCommand(commandId, status, errorMessage);
+
+    if (status === 'CONFIRMED' && actualState) {
+      if (actualState.pumpOperationalState) {
+        telemetryCache.waterData.pumpOperationalState = actualState.pumpOperationalState;
+        await query('UPDATE water_metrics SET pump_operational_state = ?, updated_at = NOW() WHERE id = 1', [actualState.pumpOperationalState]);
+        broadcast('WATER_UPDATED', telemetryCache.waterData);
+      }
+      if (typeof actualState.valveClosed === 'boolean') {
+        telemetryCache.waterData.valveClosed = actualState.valveClosed;
+        broadcast('WATER_UPDATED', telemetryCache.waterData);
+      }
+    }
+
+    await recordAuditLog({
+      userId: 'IOT_GATEWAY',
+      userRole: 'DEVICE_GATEWAY',
+      action: `DEVICE_COMMAND_${status}`,
+      entityType: 'PHYSICAL_DEVICE',
+      entityId: deviceId || commandId,
+      newValue: { commandId, status, errorMessage, actualState },
+      ip: req.ip
+    });
+
+    broadcast('COMMAND_ACK', { commandId, deviceId, status, errorMessage, actualState });
+    res.json({ success: true, message: `Command ${commandId} ACK recorded as ${status}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// IoT Device Registry & Online/Offline Status Endpoint
+app.get('/api/iot/devices', authenticateToken, async (req, res) => {
+  try {
+    await query(`
+      UPDATE iot_devices 
+      SET status = 'OFFLINE' 
+      WHERE status = 'ONLINE' AND last_seen < (NOW() - INTERVAL 5 MINUTE)
+    `);
+
+    const devices = await query('SELECT id, device_name, device_type, location, status, last_seen, firmware_version FROM iot_devices ORDER BY device_type, id');
+    res.json({ success: true, devices });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Persistent Telemetry History Query Endpoint
+app.get('/api/iot/telemetry/history', authenticateToken, async (req, res) => {
+  const { deviceId, metricName, limit = 50 } = req.query;
+  const maxLimit = Math.min(parseInt(limit, 10) || 50, 200);
+
+  try {
+    let sql = 'SELECT * FROM telemetry_history';
+    const params = [];
+    const conditions = [];
+
+    if (deviceId) {
+      conditions.push('device_id = ?');
+      params.push(deviceId);
+    }
+    if (metricName) {
+      conditions.push('metric_name = ?');
+      params.push(metricName);
+    }
+
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    sql += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(maxLimit);
+
+    const history = await query(sql, params);
+    res.json({ success: true, history });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Water Valve Manual Shutoff Command (Command vs Actual State Pattern & Simulation Isolation)
@@ -706,12 +889,37 @@ app.post('/api/fire/reset', authenticateToken, requirePermission(PERMISSIONS.EME
   res.json({ success: true, data: telemetryCache.fireEmergencyData });
 });
 
-// 7. Visitor Management (Cryptographically Secure OTP + Hashed Storage + Attempt Limit)
-app.get('/api/visitors', authenticateToken, (req, res) => {
-  const scopedVisitors = req.user.role === ROLES.RESIDENT
-    ? telemetryCache.visitorRequests.filter(v => v.residentUserId === req.user.id)
-    : telemetryCache.visitorRequests;
-  res.json(scopedVisitors);
+// 7. Visitor Management (Cryptographically Secure Hashed OTP + Lockout + One-Time Use)
+app.get('/api/visitors', authenticateToken, async (req, res) => {
+  try {
+    let sql = `
+      SELECT id, visitor_name, phone, category, unit_number, resident_user_id, status, entry_time, exit_time, valid_until, otp_attempts, created_at 
+      FROM visitor_requests
+    `;
+    const params = [];
+    if (req.user.role === ROLES.RESIDENT) {
+      sql += ' WHERE resident_user_id = ?';
+      params.push(req.user.id);
+    }
+    sql += ' ORDER BY created_at DESC LIMIT 50';
+    const rows = await query(sql, params);
+    const mapped = rows.map(v => ({
+      id: v.id,
+      visitorName: v.visitor_name,
+      category: v.category,
+      unitNumber: v.unit_number,
+      phone: v.phone || '',
+      residentUserId: v.resident_user_id,
+      status: v.status,
+      entryTime: v.entry_time,
+      exitTime: v.exit_time,
+      validUntil: v.valid_until,
+      otpAttempts: v.otp_attempts
+    }));
+    res.json(mapped);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.VISITOR_CREATE), async (req, res) => {
@@ -740,14 +948,15 @@ app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.V
 
   try {
     await query(
-      `INSERT INTO visitor_requests (id, visitor_name, phone, category, unit_number, resident_user_id, otp_code, otp_hash, valid_until, status)
-       VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 'APPROVED')`,
+      `INSERT INTO visitor_requests (id, visitor_name, phone, category, unit_number, resident_user_id, otp_hash, valid_until, status, otp_attempts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', 0)`,
       [visitorId, visitorName, phone || null, category, unitNumber, req.user.id, otpHash, validUntil]
     );
 
     // Dispatch SMS notification to visitor phone if provided
+    let smsResult = null;
     if (phone) {
-      await sendSmsNotification({
+      smsResult = await sendSmsNotification({
         toPhone: phone,
         message: `Your RAAH NAGAR Society visitor entry pass code for ${unitNumber} is ${rawOtp}. Valid for 6 hours.`
       });
@@ -759,7 +968,7 @@ app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.V
       action: 'VISITOR_PASS_GENERATED',
       entityType: 'VISITOR',
       entityId: visitorId,
-      newValue: { visitorName, unitNumber, validUntil },
+      newValue: { visitorName, unitNumber, validUntil, smsDispatched: smsResult ? smsResult.delivered : false },
       ip: req.ip
     });
   } catch (e) {
@@ -777,40 +986,83 @@ app.post('/api/visitors/add', authenticateToken, requirePermission(PERMISSIONS.V
   });
 });
 
-// Gate Verification (Compares SHA-256 hash with attempt limiter)
+// Gate Verification (Compares SHA-256 hash with attempt limiter & strict one-time use invalidation)
 app.post('/api/visitors/verify-gate', authenticateToken, requirePermission(PERMISSIONS.VISITOR_VERIFY), async (req, res) => {
-  const { otpCode, unitNumber } = req.body;
+  const { otpCode, unitNumber, visitorId } = req.body;
   if (!otpCode) {
-    return res.status(400).json({ success: false, error: 'OTP code is required.' });
+    return res.status(400).json({ success: false, error: 'OTP code is required for gate check-in.' });
   }
 
   try {
     const inputHash = crypto.createHash('sha256').update(otpCode.trim()).digest('hex');
-    const rows = await query(
-      `SELECT * FROM visitor_requests 
-       WHERE (status = 'APPROVED' OR status = 'PENDING') 
-       AND (valid_until > NOW()) 
-       ORDER BY created_at DESC`
-    );
 
-    const match = rows.find(r => r.otp_hash === inputHash);
-    if (!match) {
-      return res.status(400).json({ success: false, error: 'Invalid or expired visitor pass code.' });
+    // Identify candidate pass
+    let candidate = null;
+    if (visitorId) {
+      const rows = await query('SELECT * FROM visitor_requests WHERE id = ?', [visitorId]);
+      candidate = rows[0];
+    } else if (unitNumber) {
+      const rows = await query(
+        `SELECT * FROM visitor_requests 
+         WHERE unit_number = ? AND status IN ('APPROVED', 'PENDING') 
+         ORDER BY created_at DESC LIMIT 1`,
+        [unitNumber.trim()]
+      );
+      candidate = rows[0];
+    } else {
+      const rows = await query(
+        `SELECT * FROM visitor_requests 
+         WHERE status IN ('APPROVED', 'PENDING') AND otp_hash IS NOT NULL 
+         ORDER BY created_at DESC LIMIT 50`
+      );
+      candidate = rows.find(r => r.otp_hash === inputHash);
     }
 
-    if (match.otp_attempts >= 3) {
-      return res.status(403).json({ success: false, error: 'Passcode locked due to multiple invalid verification attempts.' });
+    if (!candidate) {
+      return res.status(404).json({ success: false, error: 'No active or valid visitor pass found for this verification request.' });
     }
 
+    // Check lockout attempts (max 5)
+    if (candidate.otp_attempts >= 5) {
+      await query('UPDATE visitor_requests SET status = "DENIED" WHERE id = ?', [candidate.id]);
+      return res.status(403).json({ success: false, error: 'Passcode locked due to 5 consecutive invalid verification attempts. Resident must issue a new pass.' });
+    }
+
+    // Check expiration
+    if (candidate.valid_until && new Date(candidate.valid_until) < new Date()) {
+      await query('UPDATE visitor_requests SET status = "EXPIRED" WHERE id = ?', [candidate.id]);
+      return res.status(400).json({ success: false, error: 'This visitor pass has expired. Entry denied.' });
+    }
+
+    // Check one-time use
+    if (!candidate.otp_hash || candidate.status === 'CHECKED_IN') {
+      return res.status(400).json({ success: false, error: 'This pass has already been used and is no longer valid (one-time use enforced).' });
+    }
+
+    // Verify hash with timingSafeEqual
+    const candidateBuffer = Buffer.from(candidate.otp_hash, 'hex');
+    const inputBuffer = Buffer.from(inputHash, 'hex');
+    const isMatch = candidateBuffer.length === inputBuffer.length && crypto.timingSafeEqual(candidateBuffer, inputBuffer);
+
+    if (!isMatch) {
+      const newAttempts = (candidate.otp_attempts || 0) + 1;
+      await query('UPDATE visitor_requests SET otp_attempts = ? WHERE id = ?', [newAttempts, candidate.id]);
+      return res.status(400).json({
+        success: false,
+        error: `Invalid OTP passcode. Attempt ${newAttempts} of 5.`
+      });
+    }
+
+    // Success: Check in and invalidate OTP for one-time use (otp_hash = NULL)
     const entryTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     await query(
       `UPDATE visitor_requests 
-       SET status = 'CHECKED_IN', entry_time = ?, verified_by_guard_id = ? 
+       SET status = 'CHECKED_IN', entry_time = ?, verified_by_guard_id = ?, otp_hash = NULL 
        WHERE id = ?`,
-      [entryTime, req.user.id, match.id]
+      [entryTime, req.user.id, candidate.id]
     );
 
-    const cached = telemetryCache.visitorRequests.find(v => v.id === match.id);
+    const cached = telemetryCache.visitorRequests.find(v => v.id === candidate.id);
     if (cached) {
       cached.status = 'CHECKED_IN';
       cached.entryTime = entryTime;
@@ -821,12 +1073,16 @@ app.post('/api/visitors/verify-gate', authenticateToken, requirePermission(PERMI
       userRole: req.user.role,
       action: 'VISITOR_GATE_CHECKIN_VERIFIED',
       entityType: 'VISITOR',
-      entityId: match.id,
+      entityId: candidate.id,
       ip: req.ip
     });
 
     broadcast('VISITOR_UPDATED', telemetryCache.visitorRequests);
-    res.json({ success: true, message: `Access granted for ${match.visitor_name}`, visitor: match });
+    res.json({
+      success: true,
+      message: `Access granted for ${candidate.visitor_name} to unit ${candidate.unit_number}. Pass invalidated for one-time use.`,
+      visitor: { ...candidate, status: 'CHECKED_IN', entryTime, otp_hash: null }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -842,6 +1098,26 @@ app.post('/api/visitors/approve/:id', authenticateToken, async (req, res) => {
     cached.status = 'APPROVED';
     cached.entryTime = entryTime;
   }
+  broadcast('VISITOR_UPDATED', telemetryCache.visitorRequests);
+  res.json({ success: true, data: telemetryCache.visitorRequests });
+});
+
+// Deny Visitor
+app.post('/api/visitors/deny/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  await query('UPDATE visitor_requests SET status = "DENIED" WHERE id = ?', [id]);
+  const cached = telemetryCache.visitorRequests.find(v => v.id === id);
+  if (cached) {
+    cached.status = 'DENIED';
+  }
+  await recordAuditLog({
+    userId: req.user.id,
+    userRole: req.user.role,
+    action: 'VISITOR_REQUEST_DENIED',
+    entityType: 'VISITOR',
+    entityId: id,
+    ip: req.ip
+  });
   broadcast('VISITOR_UPDATED', telemetryCache.visitorRequests);
   res.json({ success: true, data: telemetryCache.visitorRequests });
 });
@@ -1181,7 +1457,7 @@ app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), asy
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
     }
 
-    const users = await query('SELECT id, name, email, role, flat_number, phone, emergency_contact, vehicle_number, password_hash FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const users = await query('SELECT id, name, email, role, flat_number, phone, emergency_contact, vehicle_number, password_hash, is_verified FROM users WHERE email = ?', [email.toLowerCase().trim()]);
     if (users.length === 0) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
@@ -1192,8 +1468,16 @@ app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), asy
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
+    // 🛡️ Account verification enforcement
+    if (user.is_verified === 0 || user.is_verified === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is pending administrator verification or has been suspended. Please contact the facility admin.'
+      });
+    }
+
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, name: user.name },
+      { id: user.id, email: user.email, role: user.role, name: user.name, is_verified: user.is_verified },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -1209,11 +1493,12 @@ app.post('/api/auth/login', rateLimit({ windowMs: 60000, maxRequests: 20 }), asy
         flatNumber: user.flat_number,
         phone: user.phone,
         emergencyContact: user.emergency_contact,
-        vehicleNumber: user.vehicle_number
+        vehicleNumber: user.vehicle_number,
+        isVerified: !!user.is_verified
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error during login.' });
+    res.status(500).json({ success: false, message: 'Server error during login: ' + err.message });
   }
 });
 

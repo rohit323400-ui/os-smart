@@ -170,6 +170,19 @@ export async function approveVisitor(id: string) {
   }
 }
 
+export async function denyVisitor(id: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/visitors/deny/${id}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Error denying visitor:', err);
+    return { success: false, error: 'Network error.' };
+  }
+}
+
 export async function verifyGatePass(otpCode: string, unitNumber?: string) {
   try {
     const res = await fetch(`${API_BASE_URL}/visitors/verify-gate`, {
@@ -430,6 +443,37 @@ export async function updateSettings(settingsData: any) {
   } catch (err) {
     console.error('Error saving settings to backend:', err);
     return { success: false, message: 'Network error.' };
+  }
+}
+
+// 📡 IoT Hardware Registry & Connectivity API
+export async function fetchIotDevices() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/iot/devices`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.devices || [];
+  } catch (err) {
+    console.warn('Error fetching IoT devices registry:', err);
+    return [];
+  }
+}
+
+// 📈 Telemetry History Query API
+export async function fetchTelemetryHistory(deviceId?: string, metricName?: string, limit = 50) {
+  try {
+    const params = new URLSearchParams();
+    if (deviceId) params.append('deviceId', deviceId);
+    if (metricName) params.append('metricName', metricName);
+    params.append('limit', String(limit));
+
+    const res = await fetch(`${API_BASE_URL}/iot/telemetry/history?${params.toString()}`, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.history || [];
+  } catch (err) {
+    console.warn('Error querying telemetry history:', err);
+    return [];
   }
 }
 

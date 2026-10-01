@@ -8,10 +8,12 @@
     "todayConsumptionLiters": 48200,
     "flowRateLPM": 120,
     "pumpAutoCutoffActive": true,
-    "pumpOperationalState": "RUNNING",
+    "pumpOperationalState": "NOT_CONNECTED",
     "valveClosed": false,
     "leakageDetected": false,
-    "lastQualityCheck": "Today, 08:30 AM"
+    "lastQualityCheck": "Today, 08:30 AM",
+    "hardwareStatus": "NOT_CONNECTED",
+    "valveHardwareStatus": "NOT_CONNECTED"
   },
   "parkingSlots": [],
   "fireEmergencyData": {
@@ -27,39 +29,10 @@
   "liftStatuses": [],
   "wasteBins": [],
   "noiseData": {
-    "currentDecibels": 48,
-    "targetUnit": "B-304",
+    "currentDecibels": 0,
+    "targetUnit": null,
     "currentViolationStage": 0,
-    "decibelHistory": [
-      {
-        "time": "22:00",
-        "db": 42
-      },
-      {
-        "time": "22:15",
-        "db": 45
-      },
-      {
-        "time": "22:30",
-        "db": 48
-      },
-      {
-        "time": "22:45",
-        "db": 64
-      },
-      {
-        "time": "23:00",
-        "db": 68
-      },
-      {
-        "time": "23:15",
-        "db": 52
-      },
-      {
-        "time": "23:30",
-        "db": 46
-      }
-    ]
+    "decibelHistory": []
   },
   "resourceItems": [
     {

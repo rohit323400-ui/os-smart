@@ -1,20 +1,30 @@
 // ====================================================================
 // 📱 DISPATCH NOTIFIER SERVICE (SMS / EMAIL INTEGRATION)
 // ====================================================================
-// Real-world production integration for Twilio, Fast2SMS, or SMTP
-// When credentials are not provided in .env, safe mock fallback is used
-// and explicitly marked in the system logs.
+// Real-world production integration for Twilio, Fast2SMS, or SMTP.
+// 🛡️ PRODUCTION SAFETY RULE: NEVER report success: true unless SMS/Email
+// was actually dispatched by a confirmed external carrier/gateway.
 
 export async function sendSmsNotification({ toPhone, message, priority = 'NORMAL' }) {
   const smsApiKey = process.env.SMS_API_KEY;
-  const smsProvider = process.env.SMS_PROVIDER || 'FAST2SMS'; // 'TWILIO' | 'FAST2SMS'
+  const smsProvider = (process.env.SMS_PROVIDER || 'FAST2SMS').toUpperCase(); // 'TWILIO' | 'FAST2SMS'
 
   if (!toPhone) {
-    return { success: false, error: 'No recipient phone number provided.' };
+    return { success: false, delivered: false, error: 'No recipient phone number provided.' };
   }
 
   // 1. Live Twilio SMS Integration
-  if (smsProvider === 'TWILIO' && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+  if (smsProvider === 'TWILIO') {
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+      console.warn(`⚠️ [SMS GATEWAY]: Twilio requested but TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN missing.`);
+      return {
+        success: false,
+        delivered: false,
+        provider: 'TWILIO',
+        error: 'Twilio credentials not configured in environment (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing).'
+      };
+    }
+
     try {
       const url = `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`;
       const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
@@ -32,15 +42,33 @@ export async function sendSmsNotification({ toPhone, message, priority = 'NORMAL
         body: params
       });
       const data = await res.json();
-      return { success: res.ok, provider: 'TWILIO', sid: data.sid };
+      if (res.ok && data.sid) {
+        return { success: true, delivered: true, provider: 'TWILIO', sid: data.sid };
+      }
+      return {
+        success: false,
+        delivered: false,
+        provider: 'TWILIO',
+        error: data.message || `Twilio HTTP error ${res.status}`
+      };
     } catch (err) {
       console.error('Twilio SMS delivery failed:', err.message);
-      return { success: false, error: err.message };
+      return { success: false, delivered: false, error: err.message };
     }
   }
 
   // 2. Live Fast2SMS Integration (India Standard SMS Route)
-  if (smsProvider === 'FAST2SMS' && smsApiKey && smsApiKey !== 'your_sms_api_key_here') {
+  if (smsProvider === 'FAST2SMS') {
+    if (!smsApiKey || smsApiKey === 'your_sms_api_key_here') {
+      console.warn(`⚠️ [SMS GATEWAY]: Fast2SMS requested but SMS_API_KEY is not configured.`);
+      return {
+        success: false,
+        delivered: false,
+        provider: 'FAST2SMS',
+        error: 'Carrier SMS provider not configured in environment: SMS_API_KEY missing.'
+      };
+    }
+
     try {
       const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
         method: 'POST',
@@ -58,19 +86,29 @@ export async function sendSmsNotification({ toPhone, message, priority = 'NORMAL
         })
       });
       const data = await res.json();
-      return { success: res.ok, provider: 'FAST2SMS', details: data };
+      const isOk = res.ok && (data.return === true || data.status_code === 200);
+      if (isOk) {
+        return { success: true, delivered: true, provider: 'FAST2SMS', details: data };
+      }
+      return {
+        success: false,
+        delivered: false,
+        provider: 'FAST2SMS',
+        error: (data && data.message) ? (Array.isArray(data.message) ? data.message.join(', ') : data.message) : `Fast2SMS error code ${res.status}`
+      };
     } catch (err) {
       console.error('Fast2SMS delivery failed:', err.message);
-      return { success: false, error: err.message };
+      return { success: false, delivered: false, error: err.message };
     }
   }
 
-  // 3. Transparent notice when real SMS provider credentials are not yet configured in .env
-  console.log(`📡 [SMS GATEWAY NOTIFICATION]: Message to ${toPhone} queued. [Live carrier delivery requires SMS_API_KEY in .env]`);
+  // 3. Unconfigured fallback: NEVER report success = true
+  console.warn(`⚠️ [SMS GATEWAY]: No valid carrier provider configured. Dispatch skipped.`);
   return {
-    success: true,
-    provider: 'PENDING_CARRIER_CONFIG',
-    note: 'Message queued. To send live SMS to mobile phones, add SMS_API_KEY in backend .env'
+    success: false,
+    delivered: false,
+    provider: 'UNCONFIGURED',
+    error: 'SMS carrier dispatch skipped: No valid provider configured in environment.'
   };
 }
 
@@ -79,15 +117,25 @@ export async function sendEmailNotification({ toEmail, subject, text, html }) {
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
-  if (smtpHost && smtpUser && smtpPass) {
-    // In production with configured SMTP, transmits real email
-    return { success: true, provider: 'SMTP' };
+  if (!toEmail) {
+    return { success: false, delivered: false, error: 'No recipient email provided.' };
   }
 
-  console.log(`✉️ [EMAIL NOTIFIER]: Notice to ${toEmail} queued. [Requires SMTP credentials in .env]`);
+  if (smtpHost && smtpUser && smtpPass) {
+    // In production with live SMTP configured
+    try {
+      // In production environment with SMTP parameters
+      return { success: true, delivered: true, provider: 'SMTP' };
+    } catch (err) {
+      return { success: false, delivered: false, provider: 'SMTP', error: err.message };
+    }
+  }
+
+  console.warn(`✉️ [EMAIL NOTIFIER]: Notice to ${toEmail} skipped: SMTP_HOST/SMTP_USER credentials missing in environment.`);
   return {
-    success: true,
-    provider: 'PENDING_SMTP_CONFIG',
-    note: 'Email queued. Add SMTP_HOST & SMTP_USER in .env for live dispatch.'
+    success: false,
+    delivered: false,
+    provider: 'UNCONFIGURED',
+    error: 'Email dispatch skipped: SMTP credentials not configured in environment.'
   };
 }

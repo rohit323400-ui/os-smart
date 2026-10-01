@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `phone` VARCHAR(30) DEFAULT NULL,
   `emergency_contact` VARCHAR(30) DEFAULT NULL,
   `vehicle_number` VARCHAR(50) DEFAULT NULL,
+  `is_verified` TINYINT(1) NOT NULL DEFAULT 1,
   `reset_otp_hash` VARCHAR(255) DEFAULT NULL,
   `reset_otp_attempts` INT DEFAULT 0,
   `reset_otp_expires` BIGINT DEFAULT NULL,
@@ -66,15 +67,21 @@ CREATE TABLE IF NOT EXISTS `fire_emergency` (
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- 5. Visitor Security Gate Pass Table
+-- 5. Visitor Security Gate Pass Table (Hashed OTP Storage + One-Time Use)
 CREATE TABLE IF NOT EXISTS `visitor_requests` (
   `id` VARCHAR(64) PRIMARY KEY,
   `visitor_name` VARCHAR(100) NOT NULL,
+  `phone` VARCHAR(30) DEFAULT NULL,
   `category` ENUM('Delivery', 'Guest', 'Service', 'Cab') DEFAULT 'Guest',
   `unit_number` VARCHAR(50) NOT NULL,
-  `otp_code` VARCHAR(10) NOT NULL,
-  `status` ENUM('PENDING', 'APPROVED', 'DENIED') DEFAULT 'PENDING',
+  `resident_user_id` VARCHAR(64) DEFAULT NULL,
+  `otp_hash` VARCHAR(64) DEFAULT NULL,
+  `otp_attempts` INT NOT NULL DEFAULT 0,
+  `valid_until` DATETIME NOT NULL,
+  `status` ENUM('PENDING', 'APPROVED', 'CHECKED_IN', 'CHECKED_OUT', 'EXPIRED', 'DENIED') DEFAULT 'PENDING',
   `entry_time` VARCHAR(50) DEFAULT 'Pending',
+  `exit_time` VARCHAR(50) DEFAULT NULL,
+  `verified_by_guard_id` VARCHAR(64) DEFAULT NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -142,6 +149,77 @@ CREATE TABLE IF NOT EXISTS `action_logs` (
   `risk_level` ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') DEFAULT 'LOW',
   `details` TEXT,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- 12. IoT Hardware Registry Table
+CREATE TABLE IF NOT EXISTS `iot_devices` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `device_name` VARCHAR(100) NOT NULL,
+  `device_type` VARCHAR(50) NOT NULL,
+  `location` VARCHAR(100) NOT NULL,
+  `status` ENUM('ONLINE', 'OFFLINE', 'NOT_CONNECTED', 'MAINTENANCE') NOT NULL DEFAULT 'NOT_CONNECTED',
+  `last_seen` DATETIME DEFAULT NULL,
+  `ip_address` VARCHAR(45) DEFAULT NULL,
+  `firmware_version` VARCHAR(30) DEFAULT '1.0.0',
+  `metadata_json` JSON DEFAULT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- 13. Persistent Telemetry History Table
+CREATE TABLE IF NOT EXISTS `telemetry_history` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `device_id` VARCHAR(64) NOT NULL,
+  `device_type` VARCHAR(50) NOT NULL,
+  `metric_name` VARCHAR(50) NOT NULL,
+  `metric_value` DECIMAL(10, 2) NOT NULL,
+  `unit` VARCHAR(20) NOT NULL,
+  `status` VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_device_time (device_id, created_at),
+  INDEX idx_metric_time (metric_name, created_at)
+) ENGINE=InnoDB;
+
+-- 14. Physical Device Commands Table (Command -> Device ACK -> Confirmed State)
+CREATE TABLE IF NOT EXISTS `device_commands` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `device_id` VARCHAR(64) NOT NULL,
+  `device_type` VARCHAR(50) NOT NULL,
+  `command` VARCHAR(100) NOT NULL,
+  `requested_by` VARCHAR(64) NOT NULL,
+  `status` ENUM('PENDING', 'SENT', 'ACKNOWLEDGED', 'CONFIRMED', 'FAILED', 'TIMEOUT', 'REJECTED') DEFAULT 'PENDING',
+  `error_message` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `confirmed_at` DATETIME DEFAULT NULL
+) ENGINE=InnoDB;
+
+-- 15. Security & Administrative Audit Logs Table
+CREATE TABLE IF NOT EXISTS `audit_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` VARCHAR(64) DEFAULT 'SYSTEM',
+  `user_role` VARCHAR(50) DEFAULT 'SYSTEM',
+  `action` VARCHAR(100) NOT NULL,
+  `entity_type` VARCHAR(50) NOT NULL,
+  `entity_id` VARCHAR(64) DEFAULT NULL,
+  `old_value` JSON DEFAULT NULL,
+  `new_value` JSON DEFAULT NULL,
+  `ip_address` VARCHAR(45) DEFAULT NULL,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- 16. Resident Preference & Alert Settings Table
+CREATE TABLE IF NOT EXISTS `user_settings` (
+  `user_id` VARCHAR(64) PRIMARY KEY,
+  `emergency_alerts` TINYINT(1) DEFAULT 1,
+  `water_leak_alerts` TINYINT(1) DEFAULT 1,
+  `visitor_gate_alerts` TINYINT(1) DEFAULT 1,
+  `noise_violation_alerts` TINYINT(1) DEFAULT 0,
+  `maintenance_sms_alerts` TINYINT(1) DEFAULT 0,
+  `marketing_notifications` TINYINT(1) DEFAULT 0,
+  `theme` ENUM('dark', 'light') DEFAULT 'dark',
+  `settings_json` JSON DEFAULT NULL,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- ====================================================================

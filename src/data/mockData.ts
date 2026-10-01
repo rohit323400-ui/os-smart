@@ -12,13 +12,15 @@ export interface WaterData {
   predictedShortageBlock: string;
   municipalSupplyActive: boolean;
   municipalSupplyEnds: string;
-  mainPumpStatus: 'ACTIVE' | 'IDLE' | 'FAULT';
-  standbyPumpStatus: 'ACTIVE' | 'IDLE' | 'FAULT';
+  mainPumpStatus: 'ACTIVE' | 'IDLE' | 'FAULT' | 'NOT_CONNECTED' | 'UNKNOWN';
+  standbyPumpStatus: 'ACTIVE' | 'IDLE' | 'FAULT' | 'NOT_CONNECTED' | 'UNKNOWN';
   leakageDetected: boolean;
   leakageConfidence: number;
   leakageLocation: string;
   valveClosed: boolean;
   historicalFlow: number[];
+  hardwareStatus?: 'ONLINE' | 'OFFLINE' | 'NOT_CONNECTED' | 'UNKNOWN';
+  valveHardwareStatus?: 'ONLINE' | 'OFFLINE' | 'NOT_CONNECTED' | 'UNKNOWN';
 }
 
 export interface ParkingSlot {
@@ -410,13 +412,15 @@ export const emptyWaterData: WaterData = {
   predictedShortageBlock: 'None',
   municipalSupplyActive: false,
   municipalSupplyEnds: '--',
-  mainPumpStatus: 'IDLE',
-  standbyPumpStatus: 'IDLE',
+  mainPumpStatus: 'NOT_CONNECTED',
+  standbyPumpStatus: 'NOT_CONNECTED',
   leakageDetected: false,
   leakageConfidence: 0,
   leakageLocation: 'None',
   valveClosed: false,
-  historicalFlow: []
+  historicalFlow: [],
+  hardwareStatus: 'NOT_CONNECTED',
+  valveHardwareStatus: 'NOT_CONNECTED'
 };
 
 export const emptyFireData: FireEmergencyData = {

@@ -70,8 +70,20 @@ export async function authenticateToken(req, res, next) {
           error: 'User account associated with this session no longer exists.'
         });
       }
+      if (users[0].is_verified === 0 || users[0].is_verified === false) {
+        return res.status(403).json({
+          success: false,
+          error: 'Your account is pending verification or has been suspended. Please contact the society administration.'
+        });
+      }
       req.user = users[0];
     } catch (dbErr) {
+      if (decoded.is_verified === 0 || decoded.is_verified === false) {
+        return res.status(403).json({
+          success: false,
+          error: 'Your account is pending verification or has been suspended.'
+        });
+      }
       req.user = decoded;
     }
 

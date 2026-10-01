@@ -173,7 +173,15 @@ export const WaterManagement: React.FC<WaterManagementProps> = ({
                       <div className="text-xs font-bold text-slate-900 dark:text-white">Main Pump #1</div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400">Runtime: 4h 12m today</div>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      waterData.mainPumpStatus === 'ACTIVE'
+                        ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+                        : waterData.mainPumpStatus === 'FAULT'
+                        ? 'bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30'
+                        : waterData.mainPumpStatus === 'NOT_CONNECTED' || waterData.mainPumpStatus === 'UNKNOWN'
+                        ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                    }`}>
                       {waterData.mainPumpStatus}
                     </span>
                   </div>
@@ -183,7 +191,15 @@ export const WaterManagement: React.FC<WaterManagementProps> = ({
                       <div className="text-xs font-bold text-slate-900 dark:text-white">Standby Pump #2</div>
                       <div className="text-[10px] text-slate-500 dark:text-slate-400">Runtime: 0h 45m today</div>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      waterData.standbyPumpStatus === 'ACTIVE'
+                        ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+                        : waterData.standbyPumpStatus === 'FAULT'
+                        ? 'bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30'
+                        : waterData.standbyPumpStatus === 'NOT_CONNECTED' || waterData.standbyPumpStatus === 'UNKNOWN'
+                        ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                    }`}>
                       {waterData.standbyPumpStatus}
                     </span>
                   </div>

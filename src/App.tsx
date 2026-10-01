@@ -28,6 +28,9 @@ import {
   fetchFullSync,
   connectRealtime,
   approveVisitor,
+  denyVisitor,
+  addVisitor,
+  verifyGatePass,
   sendValveCommand,
   toggleParkingSlot,
   dispatchWasteVendor,
@@ -68,13 +71,15 @@ function normalizeWaterData(data: any): WaterData {
     predictedShortageBlock: data.predictedShortageBlock || 'None',
     municipalSupplyActive: !!(data.municipalSupplyActive ?? false),
     municipalSupplyEnds: data.municipalSupplyEnds || '--',
-    mainPumpStatus: (data.mainPumpStatus || (data.pumpOperationalState === 'RUNNING' ? 'ACTIVE' : 'IDLE')) as any,
-    standbyPumpStatus: (data.standbyPumpStatus || 'IDLE') as any,
+    mainPumpStatus: (data.mainPumpStatus || (data.pumpOperationalState === 'RUNNING' ? 'ACTIVE' : data.pumpOperationalState === 'NOT_CONNECTED' ? 'NOT_CONNECTED' : data.pumpOperationalState === 'OFFLINE' ? 'NOT_CONNECTED' : 'IDLE')) as any,
+    standbyPumpStatus: (data.standbyPumpStatus || (data.hardwareStatus === 'NOT_CONNECTED' ? 'NOT_CONNECTED' : 'IDLE')) as any,
     leakageDetected: !!data.leakageDetected,
     leakageConfidence: data.leakageConfidence ?? 0,
     leakageLocation: data.leakageLocation || 'None',
     valveClosed: !!data.valveClosed,
-    historicalFlow: Array.isArray(data.historicalFlow) ? data.historicalFlow : []
+    historicalFlow: Array.isArray(data.historicalFlow) ? data.historicalFlow : [],
+    hardwareStatus: data.hardwareStatus,
+    valveHardwareStatus: data.valveHardwareStatus
   };
 }
 
@@ -472,10 +477,16 @@ export function App() {
     await approveVisitor(id);
   };
 
-  const handleDenyVisitor = (id: string) => {
-    setVisitorRequests((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, status: 'denied' } : v))
-    );
+  const handleDenyVisitor = async (id: string) => {
+    await denyVisitor(id);
+  };
+
+  const handleCreateVisitorPass = async (params: { visitorName: string; unitNumber: string; category: string; phone?: string }) => {
+    return await addVisitor(params.visitorName, params.unitNumber, params.category, params.phone);
+  };
+
+  const handleVerifyGatePass = async (otpCode: string, unitNumber?: string) => {
+    return await verifyGatePass(otpCode, unitNumber);
   };
 
   // Real Maintenance Action
@@ -619,6 +630,10 @@ export function App() {
             requests={visitorRequests}
             onApprove={handleApproveVisitor}
             onDeny={handleDenyVisitor}
+            onCreatePass={handleCreateVisitorPass}
+            onVerifyGatePass={handleVerifyGatePass}
+            userRole={userRole}
+            currentUserFlat={currentUser?.flatNumber}
           />
         )}
 
